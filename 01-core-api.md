@@ -1,12 +1,12 @@
 # Spec 01: Core API Protocol
 
-> Version: 2 | Status: Phase 1 Required | Last updated: 2026-02-23
+> Version: 3 | Status: Phase 1 Required | Last updated: 2026-03-07
 
 ## Overview
 
 WebSocket primary channel for real-time interaction (streaming, approvals,
 events). REST secondary channel for stateless operations (health, config,
-Kit management). All WebSocket messages carry a protocol version number.
+Skill management, automation). All WebSocket messages carry a protocol version number.
 
 ## Authentication
 
@@ -46,7 +46,7 @@ Pairing tokens can be revoked via `DELETE /api/v1/nodes/{node_id}/token`.
 ### Envelope
 
 ```json
-{"v": 2, "id": "msg_01HXYZ", "type": "chat.send", "payload": {...}}
+{"v": 3, "id": "msg_01HXYZ", "type": "chat.send", "payload": {...}}
 ```
 
 | Field | Type | Description |
@@ -60,12 +60,12 @@ Pairing tokens can be revoked via `DELETE /api/v1/nodes/{node_id}/token`.
 
 | Type | Payload Fields | Description |
 |------|---------------|-------------|
-| `chat.send` | session_id, content, attachments[] | Send user message |
-| `chat.abort` | session_id | Abort current agent loop |
-| `session.create` | title? | Create new session |
-| `session.list` | limit?, offset? | List sessions |
-| `session.delete` | session_id | Delete session |
-| `kit.approve` | approval_id, approved | Approve or deny a tool call |
+| `chat.send` | thread_id?, content, attachments[] | Send user message. Omit thread_id for Main. |
+| `chat.abort` | thread_id? | Abort current agent loop |
+| `thread.create` | title?, type? | Create new Thread (type: "task" or "focus") |
+| `thread.list` | limit?, offset? | List Threads |
+| `thread.delete` | thread_id | Delete Thread |
+| `tool.approve` | approval_id, approved | Approve or deny a tool call |
 | `config.get` | key? | Get config value (null = all) |
 | `config.set` | key, value | Set a live config value |
 
@@ -73,14 +73,17 @@ Pairing tokens can be revoked via `DELETE /api/v1/nodes/{node_id}/token`.
 
 | Type | Payload Fields | Description |
 |------|---------------|-------------|
-| `chat.delta` | session_id, message_id, delta | Streaming token |
-| `chat.done` | session_id, message_id, finish_reason | Stream complete |
-| `chat.error` | session_id, error, code | Error during chat |
-| `kit.request` | approval_id, session_id, kit_name, tool_name, parameters, risk_level | Tool call approval request |
-| `kit.progress` | session_id, kit_name, tool_name, progress | Tool execution progress |
-| `kit.result` | session_id, kit_name, tool_name, result, is_error | Tool execution result |
-| `session.updated` | session_id, title? | Session metadata changed |
-| `event.injected` | session_id, event | Event injected into session context |
+| `chat.delta` | thread_id?, message_id, delta | Streaming token. Omit thread_id for Main. |
+| `chat.done` | thread_id?, message_id, finish_reason | Stream complete |
+| `chat.error` | thread_id?, error, code | Error during chat |
+| `tool.request` | approval_id, thread_id?, tool_name, parameters, risk_level | Tool call approval request |
+| `tool.progress` | thread_id?, tool_name, progress | Tool execution progress |
+| `tool.result` | thread_id?, tool_name, result, is_error | Tool execution result |
+| `thread.updated` | thread_id, title?, status? | Thread metadata changed |
+| `automation.run_started` | run_id, subscription_name, trigger_event | Automation Run started |
+| `automation.run_completed` | run_id, subscription_name, status, summary | Automation Run finished |
+| `automation.approval` | run_id, approval_id, description, tools_used | Automation needs user approval for write operations |
+| `event.injected` | thread_id?, event | Event injected into context |
 
 ## REST Endpoints
 
@@ -90,23 +93,42 @@ Pairing tokens can be revoked via `DELETE /api/v1/nodes/{node_id}/token`.
 |--------|------|-------------|
 | GET | /api/v1/health | Health check. Returns Core version, uptime, DB status. |
 
-### Sessions
+### Threads
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | /api/v1/sessions | List sessions (paginated) |
-| POST | /api/v1/sessions | Create session |
-| GET | /api/v1/sessions/{id} | Get session detail |
-| DELETE | /api/v1/sessions/{id} | Delete session |
+| GET | /api/v1/threads | List Threads (paginated) |
+| POST | /api/v1/threads | Create Thread |
+| GET | /api/v1/threads/{id} | Get Thread detail |
+| DELETE | /api/v1/threads/{id} | Delete Thread |
 
-### Kits
+### Main
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | /api/v1/kits | List installed Kits with status |
-| GET | /api/v1/kits/{name} | Get Kit detail and manifest |
-| POST | /api/v1/kits/{name}/enable | Enable a Kit |
-| POST | /api/v1/kits/{name}/disable | Disable a Kit |
+| GET | /api/v1/main/messages | Get Main conversation messages (paginated, most recent first) |
+
+### Skills
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/v1/skills | List installed Skills with status |
+| GET | /api/v1/skills/{name} | Get Skill detail and manifest |
+| POST | /api/v1/skills/{name}/enable | Enable a Skill |
+| POST | /api/v1/skills/{name}/disable | Disable a Skill |
+
+### Automation
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/v1/automation/triggers | List registered triggers |
+| GET | /api/v1/automation/subscriptions | List subscriptions |
+| POST | /api/v1/automation/subscriptions | Create a subscription |
+| DELETE | /api/v1/automation/subscriptions/{id} | Remove a subscription |
+| GET | /api/v1/automation/routines | List available routines |
+| GET | /api/v1/automation/runs | List recent Automation Runs |
+| GET | /api/v1/automation/runs/{id} | Get Automation Run detail |
+| GET | /api/v1/automation/events | Read Event Queue (paginated) |
 
 ### Configuration
 
@@ -128,22 +150,23 @@ Pairing tokens can be revoked via `DELETE /api/v1/nodes/{node_id}/token`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | /api/v1/hooks/{kit_name}/{event_source} | Receive external webhook, publish to event bus |
+| POST | /api/v1/hooks/{trigger_name}/{event_source} | Receive external webhook, publish to Event Queue |
 
-Webhook endpoints are auto-registered when a Kit with `trigger: webhook` event
-sources is installed. The endpoint validates the payload against the Kit's
-event source schema and publishes a typed event to the EventBus.
+Webhook endpoints are auto-registered when a Trigger with `type: webhook`
+is installed. The endpoint validates the payload against the Trigger's
+event schema and publishes a typed event to the Event Queue.
 
 ## WS vs REST Boundary
 
 **WebSocket** is for anything that involves ongoing state or real-time flow:
 chat streaming, tool approval/result cycles, config changes that should notify
-connected clients, and event injection.
+connected clients, automation run notifications, and event injection.
 
 **REST** is for stateless, request-response operations: health checks, listing
-resources, CRUD on sessions/Kits/nodes, config reload, and incoming webhooks.
+resources, CRUD on Threads/Skills/Automations, config reload, and incoming
+webhooks.
 
-**Overlap rule**: Sessions and config are accessible via both channels.
+**Overlap rule**: Threads and config are accessible via both channels.
 When the same operation is available on both, REST is the canonical source and
 WebSocket is a convenience for connected clients. If a REST call modifies state,
 Core broadcasts the change to connected WebSocket clients as an update message.
@@ -158,9 +181,9 @@ All errors include a `code` field (string) and a human-readable `error` field.
 | `auth_invalid` | 401 | Token is invalid or expired |
 | `not_found` | 404 | Resource does not exist |
 | `validation_error` | 422 | Invalid payload or parameters |
-| `session_not_found` | 404 | Session ID does not exist |
-| `kit_not_found` | 404 | Kit name does not exist |
-| `kit_disabled` | 403 | Kit exists but is not enabled |
+| `thread_not_found` | 404 | Thread ID does not exist |
+| `skill_not_found` | 404 | Skill name does not exist |
+| `skill_disabled` | 403 | Skill exists but is not enabled |
 | `approval_timeout` | 408 | Tool call approval not received in time |
 | `approval_denied` | 403 | User denied the tool call |
 | `tool_error` | 500 | Tool execution failed |
@@ -168,6 +191,9 @@ All errors include a `code` field (string) and a human-readable `error` field.
 | `rate_limited` | 429 | Too many requests |
 | `config_invalid` | 422 | Config value failed validation |
 | `config_restart_required` | 200 | Config changed but requires container restart to take effect |
+| `automation_disabled` | 403 | Automation subscription exists but is disabled |
+| `trigger_not_found` | 404 | Trigger name does not exist |
+| `routine_not_found` | 404 | Routine file does not exist |
 | `internal_error` | 500 | Unexpected server error |
 
 On WebSocket, errors are delivered as `chat.error` (for session-scoped errors)
@@ -183,20 +209,34 @@ or as a response payload with the same `id` as the request (for other errors).
 | `error` | Error during generation |
 | `aborted` | User sent `chat.abort` |
 
-## Kit Approval Modes
+## Tool Approval
 
-Configured via `security.kit_approval` in config.
+### Risk Levels
+
+Every tool declares a `risk_level`. This applies universally — whether the tool
+is called interactively (user present) or by an Automation (background).
+
+| Risk Level | Meaning | Examples |
+|------------|---------|---------|
+| `low` | Read-only, no side effects | Read a file, check calendar |
+| `medium` | Writes data, reversible | Create a calendar event, send a draft |
+| `high` | System changes, hard to reverse | Delete files, execute shell commands |
+| `critical` | Destructive or irreversible | Bulk delete, send emails on behalf of user |
+
+### Approval Modes
+
+Configured via `security.tool_approval` in config.
 
 | Mode | Behavior |
 |------|----------|
-| `ask_first` | Every tool call sends `kit.request` and waits for `kit.approve` |
-| `auto` | All enabled Kit tools auto-execute without approval |
-| `auto_with_allowlist` | Allowlisted Kit tools auto-execute, others require approval |
+| `ask_first` | Every tool call sends `tool.request` and waits for `tool.approve` |
+| `auto` | All enabled tools auto-execute without approval |
+| `auto_with_allowlist` | Allowlisted tools auto-execute, others require approval |
 
-### Risk Levels and Approval Override
+### Risk Level Override
 
-Each tool in a Kit manifest declares a `risk_level`. The approval mode interacts
-with risk level as follows:
+Regardless of approval mode, `high` and `critical` tools always require explicit
+user approval. This is a safety invariant that cannot be overridden.
 
 | Risk Level | `ask_first` | `auto` | `auto_with_allowlist` |
 |------------|-------------|--------|----------------------|
@@ -205,15 +245,18 @@ with risk level as follows:
 | `high` | Ask | Ask | Ask |
 | `critical` | Ask | Ask | Ask |
 
-`high` and `critical` tools always require explicit user approval regardless of
-the configured mode. This is a safety invariant that cannot be overridden.
+### Automation Runs
 
-| Risk Level | Meaning | Examples |
-|------------|---------|---------|
-| `low` | Read-only, no side effects | Read a file, check calendar |
-| `medium` | Writes data, reversible | Create a calendar event, send a draft |
-| `high` | System changes, hard to reverse | Delete files, execute shell commands |
-| `critical` | Destructive or irreversible | Format disk, bulk delete, send emails on behalf of user |
+When an Automation Run executes tools in the background (no user present), the
+same risk-level rules apply. The Automation inherits tool permissions — it does
+not have its own permission scope.
+
+- `low` and `medium` tools: execute according to the configured approval mode
+- `high` and `critical` tools: pause the Automation Run, send
+  `automation.approval` to Main, wait for user response
+
+If the user is offline when an approval is needed, the Run is suspended until
+the user reconnects. Suspended Runs are visible in the sidebar.
 
 ## Type Definitions
 

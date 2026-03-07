@@ -19,7 +19,7 @@ A [Dotislash](https://github.com/dotislash) project.
 
 ## What is DOTI?
 
-DOTI is an open-source, self-hosted AI agent platform. It connects to your LLM provider of choice, uses [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) for tool integration, and introduces **Kits** — installable packages that give your agent both the ability to act *and* the awareness to act on its own.
+DOTI is an open-source, self-hosted AI agent platform. It connects to your LLM provider of choice, uses [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) for tool integration, and provides a three-layer architecture — **MCP** for execution, **Skills** for knowledge, and **Automation** for event-driven proactive behavior.
 
 You deploy it with Docker. You control it with a cross-platform CLI or Web UI. Every action can require your explicit approval. Your data stays on your hardware.
 
@@ -27,25 +27,48 @@ You deploy it with Docker. You control it with a cross-platform CLI or Web UI. E
 
 **One dot connects everything.** Your phone, laptop, NAS, calendar, codebase — DOTI treats each connected device as another dot in the network. They all speak the same protocol, and the agent orchestrates them.
 
-**AI should raise its hand before it acts.** Every Kit declares what it needs. Every action can require your approval. Everything is logged. Capable, but it asks first.
+**AI should raise its hand before it acts.** Every tool declares its risk level. Every action can require your approval. Everything is logged. Capable, but it asks first.
 
-### Kits
+### Skills
 
-A Kit is an installable package that gives your agent new capabilities. It can contain **tools** (things the agent can do when you ask), **triggers** (events that wake the agent up on their own), or both.
+A Skill is an installable package that gives your agent new capabilities and knowledge. It contains **instructions** (markdown files telling the agent how to perform complex tasks) and can optionally bundle **MCP servers** or **scripts** that provide specialized tools.
 
-For example, a Calendar Kit gives your agent the ability to check your schedule when you ask — but also wakes it up every morning at 8 AM to brief you on today's meetings. One install, both directions.
+For example, an Email Skill gives your agent instructions on how to triage your inbox, plus an MCP server that provides `email.list`, `email.send`, and `email.archive` tools. When you ask "help me clean up my inbox," the agent loads the Skill's instructions and uses its tools.
 
-**Tool Kit** — gives the agent new abilities, but only when you ask. A file operations Kit lets the agent read and write files in your workspace. It never acts on its own.
+Skills are the knowledge layer — they answer "what tools exist" and "how to use them for complex tasks."
 
-**Trigger Kit** — wakes the agent up when something happens, but doesn't add new tools. A morning briefing Kit fires every day at 8 AM with the prompt "summarize my day", using whatever other Kits are already installed.
+### Automation
 
-**Full Kit** — both. An email Kit lets the agent search your inbox and draft replies when you ask, *and* alerts you when an important message arrives.
+Automation is a separate, event-driven system that lets your agent act proactively without user interaction. It consists of four components:
 
-#### Kits vs. Skills
+**Triggers** — Background scripts that run continuously and push events into a central queue. A cron trigger fires every morning at 8 AM. A file-watch trigger fires when a file changes. Triggers only produce events — they don't know or care who consumes them.
 
-Most AI agent frameworks use "Skills" or "Plugins" — packages that give an agent new tools to call. Kits include that, but go further. A Skill is **passive**: it waits for the agent to call it. A Kit can be **active**: it watches for events and wakes the agent up with a task. This means things that would normally require a separate automation system (cron jobs, webhook handlers, sensor monitors) are bundled right into the same package that provides the tools. No separate config, no separate system — one Kit, complete loop.
+**Event Queue** — A central bus that collects all trigger events. Every event has a type, source, and payload. The queue is persistent and inspectable.
 
-Under the hood, every Kit's tools are standard [MCP](https://modelcontextprotocol.io/) servers — the same protocol used by Claude, Cursor, and a growing ecosystem of AI tools. Any existing MCP server can be wrapped into a Kit with zero changes. DOTI adds a permission layer, event triggers, and agent instructions on top.
+**Subscriptions** — Rules that filter the event queue and wake up the agent. "When `cron.fired` from `morning-check` appears, load this Routine." Subscriptions bind triggers to actions without either side knowing about the other.
+
+**Routines** — Markdown instruction files that tell the agent what to do when woken up by a subscription. The agent reads the Routine, uses whatever MCP tools it needs (from any installed Skill), and reports results.
+
+```
+Trigger (background)
+  → pushes event to Event Queue
+    → Subscription matches event
+      → Agent wakes up in a dedicated Thread
+        → Reads Routine instructions
+          → Uses MCP tools from any Skill to execute
+            → Reports results to Main
+```
+
+#### Why separate Skills and Automation?
+
+Most AI agent frameworks bundle tools and automation triggers into one package ("plugins" or "kits"). This creates a fundamental problem: if an automation needs tools from multiple packages, permissions get tangled. Which package "owns" the automation? How do you scope permissions across package boundaries?
+
+DOTI separates them cleanly:
+
+- **Skills** define what tools exist (capabilities)
+- **Automation** defines when and how to use them (orchestration)
+
+An Automation can reference tools from any installed Skill. Permission is inherited from each tool's declared risk level — not from the Skill or Automation package. This means cross-Skill automations work naturally without permission conflicts.
 
 ### Other Concepts
 
@@ -55,21 +78,21 @@ You
  └── Web UI (:3000)        Chat, approvals, monitoring
       ↕ WebSocket
 DOTI Core (Docker)          Agent loop, LLM, permissions, event bus
-      ↕ MCP Protocol                          ↑ Events
- ┌──────────────────────────────────────────────┐
- │  Kits                                        │
- │                                              │
- │  Tools (agent calls out)                     │
- │  calendar · email · files · web-search       │
- │                                              │
- │  Triggers (world calls in)                   │
- │  cron · webhook · device sensor · threshold  │
- └──────────────────────────────────────────────┘
+      ↕ MCP Protocol                       ↑ Events
+ ┌──────────────────────────────────────────┐
+ │  Skills (knowledge + tools)              │
+ │  email · calendar · filesystem · web     │
+ │                                          │
+ │  Automation (event-driven)               │
+ │  Triggers → Event Queue → Subscriptions  │
+ │  cron · webhook · file-watch · threshold │
+ │  → Routines (what to do when triggered)  │
+ └──────────────────────────────────────────┘
 ```
 
-**Core** — The brain. Runs inside Docker. Manages your LLM, chat sessions, Kit permissions, and routes tool calls. You never need to enter the container — the CLI and Web UI handle everything from outside.
+**Core** — The brain. Runs inside Docker. Manages your LLM, chat sessions, tool permissions, and routes tool calls. You never need to enter the container — the CLI and Web UI handle everything from outside.
 
-**Nodes** — Your devices, connected to Core via a lightweight agent. A Node exposes its device capabilities (shell, filesystem, clipboard, sensors) as a set of Kits through a reverse WebSocket tunnel. Your desktop becomes a collection of tools and sensors that the agent can use — with your permission.
+**Nodes** — Your devices, connected to Core via a lightweight agent. A Node exposes its device capabilities (shell, filesystem, clipboard, sensors) as a set of MCP tools through a reverse WebSocket tunnel. Your desktop becomes a collection of tools and sensors that the agent can use — with your permission.
 
 **Swarms** — Multiple agents collaborating on a task through shared context and an event bus. *(Planned — not yet available.)*
 
@@ -81,11 +104,11 @@ What works today: project scaffolding, monorepo structure, versioned spec defini
 
 | Phase | Focus | Status |
 |-------|-------|--------|
-| **1 — Foundation** | Docker deployment, MCP broker, agent loop with tool calling, streaming chat | 🔨 In progress |
-| **2 — Control & Config** | Host CLI (`doti` command), config hot-reload, event bus | 📋 Spec'd |
-| **3 — Memory & Automation** | Context compression, long-term memory, Kit triggers (cron, webhook) | 📋 Spec'd |
-| **4 — Device Network** | Node agent, reverse tunnel, device pairing | 📐 Designed |
-| **5 — Multi-Agent** | Swarm mode, shared context, agent collaboration | 📐 Designed |
+| **1 — Foundation** | Docker deployment, MCP broker, agent loop with tool calling, streaming chat | In progress |
+| **2 — Control & Config** | Host CLI (`doti` command), config hot-reload, event bus | Spec'd |
+| **3 — Memory & Automation** | Context compression, long-term memory, Triggers, Event Queue, Subscriptions, Routines | Spec'd |
+| **4 — Device Network** | Node agent, reverse tunnel, device pairing | Designed |
+| **5 — Multi-Agent** | Swarm mode, shared context, agent collaboration | Designed |
 
 ## Getting Started
 
@@ -139,7 +162,7 @@ llm:
     compression_threshold: 0.6
 
 security:
-  kit_approval: "ask_first"   # ask_first | auto | auto_with_allowlist
+  tool_approval: "ask_first"   # ask_first | auto | auto_with_allowlist
 ```
 
 Some settings take effect immediately, others require a restart. See [Configuration Reference](docs/configuration.md) for the full list.
@@ -149,13 +172,14 @@ Some settings take effect immediately, others require a restart. See [Configurat
 ```bash
 pipx install doti-cli
 
-doti up / down / logs             # Manage the Docker deployment
-doti status                       # Health check
-doti config edit / get / set      # Configuration management
-doti kit list / install / enable  # Kit management
-doti node list / pair             # Device management (Phase 4)
-doti update                       # Pull latest images and restart
-doti backup                       # Back up database and config
+doti up / down / logs                # Manage the Docker deployment
+doti status                          # Health check
+doti config edit / get / set         # Configuration management
+doti skill list / install / enable   # Skill management
+doti automation list / enable        # Automation management
+doti node list / pair                # Device management (Phase 4)
+doti update                         # Pull latest images and restart
+doti backup                         # Back up database and config
 ```
 
 ## Architecture
@@ -192,11 +216,11 @@ User devices
 
 ### Design Principles
 
-**Spec-first.** Every interface is a versioned specification defined before code is written. Protocol messages carry version numbers. Schemas are migration-managed. Config files declare their format version. Internals can evolve without breaking your data, Kits, or connected devices.
+**Spec-first.** Every interface is a versioned specification defined before code is written. Protocol messages carry version numbers. Schemas are migration-managed. Config files declare their format version. Internals can evolve without breaking your data, Skills, or connected devices.
 
 **Everything is MCP.** Built-in tools, third-party integrations, and remote devices all expose capabilities through the Model Context Protocol. The Core doesn't distinguish between a local file reader and a remote desktop — they're both MCP servers with different transports.
 
-**MCP + Events.** MCP handles the downward path (agent calls tools). A lightweight event bus handles the upward path (triggers and devices push events to the agent). Two directions, unified in one package: the Kit.
+**MCP + Events.** MCP handles the downward path (agent calls tools). A lightweight event bus handles the upward path (triggers push events to the agent). Two directions, unified through Skills (tools) and Automation (events).
 
 **Concurrency without global locks.** Multiple sessions run in parallel. Resource conflicts are resolved per-resource (file locks, shell locks), not by blocking entire sessions. The agent is told when a resource is busy and can decide to wait or do something else.
 
@@ -220,7 +244,8 @@ User devices
 |-----|-------------|
 | [Specifications](docs/specs/) | Protocol definitions, schema reference, design rationale |
 | [Configuration Reference](docs/configuration.md) | All config options with hot-reload annotations |
-| [Writing Kits](docs/writing-kits.md) | How to create DOTI Kits (MCP + triggers) |
+| [Writing Skills](docs/writing-skills.md) | How to create DOTI Skills (MCP + instructions) |
+| [Automation Guide](docs/automation.md) | How to set up Triggers, Subscriptions, and Routines |
 | [Connecting Nodes](docs/nodes.md) | Set up device agents (Phase 4) |
 | [API Reference](docs/api.md) | Core API for client and CLI developers |
 

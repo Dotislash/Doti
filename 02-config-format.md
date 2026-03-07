@@ -1,6 +1,6 @@
 # Spec 02: Config Format
 
-> Version: 2 | Status: Phase 1 Required | Last updated: 2026-02-24
+> Version: 3 | Status: Phase 1 Required | Last updated: 2026-03-07
 
 ## Overview
 
@@ -21,8 +21,8 @@ deploy/configs/
 │   ├── balanced.yaml        # Agent model profile (name is arbitrary)
 │   ├── budget.yaml
 │   └── performance.yaml
-├── security.yaml            # Authentication, Kit approval, sandbox
-└── runtime.yaml             # Concurrency, storage, embedding, events
+├── security.yaml            # Authentication, tool approval, sandbox
+└── runtime.yaml             # Concurrency, storage, embedding, events, automation
 ```
 
 ## Include Mechanism
@@ -31,7 +31,7 @@ The main config file can include other files via the `include` field:
 
 ```yaml
 # config.yaml
-config_version: 2
+config_version: 3
 include:
   - providers.yaml
   - profiles/balanced.yaml
@@ -203,8 +203,8 @@ Core validates that profile thinking fields match the model's declared style:
 
 | Model style | `thinking.budget` in profile | `thinking.level_openai` in profile |
 |-------------|-----------------------------|------------------------------------|
-| `budget` | ✓ Valid | ✗ Error: wrong style |
-| `level_openai` | ✗ Error: wrong style | ✓ Valid |
+| `budget` | Valid | Error: wrong style |
+| `level_openai` | Error: wrong style | Valid |
 
 This prevents silent misconfiguration where a user thinks they set a thinking
 parameter but it has no effect.
@@ -237,7 +237,7 @@ profile:
     context:
       max_tokens: 200000
 
-  kit:
+  automation:
     model: "openrouter/gpt5"
     thinking:
       enabled: true
@@ -252,17 +252,21 @@ profile:
 |------|---------|----------------|
 | `primary` | Handles direct user conversation. Receives `chat.send` messages. | Best reasoning, instruction following, "EQ". |
 | `long_context` | Compresses context when primary hits `compression_threshold`. Not a separate agent — works transparently behind primary. | Cheap, large context window, good summarization. |
-| `kit` | Executes tool call chains when primary decides to use a Kit. Returns summarized results to primary. | Good tool use, cheap (high token volume from tool calls). |
+| `automation` | Executes Automation Runs when a Subscription is triggered. Reads Routines and calls MCP tools. | Good tool use, cheap (high token volume from tool calls). |
 
 ### Agent Execution Flow
 
 ```
 User message → Primary Model
-                 ├── Needs tools → Kit Model executes MCP tool chain
-                 │                  → Result summary returned to Primary
+                 ├── Needs tools → Primary calls MCP tools directly
                  ├── Context full → Long Context Model compresses
                  │                  → Primary continues with compressed context
                  └── Direct reply → User
+
+Trigger event → Subscription matches → Automation Model
+                 ├── Reads Routine instructions
+                 ├── Calls MCP tools from any Skill
+                 └── Reports results to Main
 ```
 
 ### Context Override
@@ -281,8 +285,8 @@ and logs a warning.
 
 security:
   api_token: null                     # [reload] required — auto-generated on first `doti up`
-  kit_approval: "ask_first"           # [reload] ask_first | auto | auto_with_allowlist
-  kit_allowlist: []                   # [reload] Kit names for auto_with_allowlist
+  tool_approval: "ask_first"          # [reload] ask_first | auto | auto_with_allowlist
+  tool_allowlist: []                  # [reload] Tool names for auto_with_allowlist
   sandbox_runtime: "subprocess"       # [static] subprocess | docker
 ```
 
@@ -298,11 +302,21 @@ concurrency:                          # [reload]
 storage:                              # [static]
   database_url: "sqlite+aiosqlite:///data/doti.db"
 
+workspace:                            # [reload]
+  path: "./workspace"                 # workspace root directory
+
 memory:                               # [reload]
   embedding:
     model: "openai/embed-small"       # references providers.yaml alias
     # Changing embedding model invalidates all stored vectors.
     # Core will warn and require confirmation before re-indexing.
+
+automation:                           # [reload]
+  triggers: "workspace/triggers.json" # trigger definitions file
+  subscriptions: "workspace/subscriptions.json"  # subscription rules file
+  routines_dir: "workspace/routines"  # directory containing Routine markdown files
+  event_retention_days: 7             # how long to keep events in the queue
+  run_retention_days: 30              # how long to keep Automation Run records
 
 events:                               # [live]
   injection:
@@ -378,7 +392,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 6. Load active `profile` → validate all model references exist and are healthy
 7. Validate thinking field compatibility (style matching)
 8. Validate context overrides (clamp if exceeding model's context_window)
-9. Load remaining config sections (security, runtime)
+9. Load remaining config sections (security, runtime, automation)
 10. Start Core services
 
 ## Forward Compatibility
@@ -386,7 +400,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 - New fields always get sensible defaults
 - Structural changes bump `config_version`
 - Core reads `config_version` and applies migration if needed (e.g. renaming
-  `skill_approval` → `kit_approval` when upgrading from v1 to v2)
+  fields when upgrading across versions)
 - Old config versions are auto-migrated with a logged warning
 
 ## Type Definitions

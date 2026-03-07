@@ -1,11 +1,11 @@
 # DOTI Interaction Model
 
-> Status: Final Discussion Document | Date: 2026-02-24
+> Status: Final Discussion Document | Date: 2026-03-07 (revised)
 
 This document describes how a user interacts with DOTI. It replaces the
 traditional session-based chat model with a continuous, memory-driven
 relationship between user and agent. It covers the Main conversation, Threads,
-Kit automation, and the permission systems that tie them together.
+Automation, and the permission system.
 
 ---
 
@@ -53,7 +53,7 @@ day-to-day interaction. This is "talking to your assistant."
 focus, isolation, or parallel execution. This is "giving your assistant a
 specific project."
 
-**Kit Runs** — Execution records of automated Kit triggers. Visible for
+**Automation Runs** — Execution records of triggered automations. Visible for
 monitoring and review. This is "checking what your assistant did on autopilot."
 
 These three layers form a natural user journey:
@@ -62,9 +62,9 @@ These three layers form a natural user journey:
 Daily conversation (Main)
   → Complex task identified → Thread created
     → Task completed → Thread archived, summary returns to Main
-      → Pattern recognized → Kit generated from Thread (Phase 3)
-        → Kit runs automatically → Kit Run visible for monitoring
-          → Kit Run results surface in Main
+      → Pattern recognized → Routine + Subscription created (Phase 3)
+        → Automation runs on schedule → Automation Run visible for monitoring
+          → Automation Run results surface in Main
 ```
 
 ---
@@ -92,11 +92,22 @@ Main handles everything that does not require a dedicated workspace:
 - Quick questions and answers
 - Brief tool use (check calendar, look up a file, search the web)
 - Casual conversation
-- Kit Run approvals and notifications
+- Automation Run approvals and notifications
 - Thread creation prompts and completion summaries
 
 The boundary is: **if the task can be completed in a few exchanges without
 significant context accumulation, it stays in Main.**
+
+### Main's Access to Threads
+
+The Main agent has a tool to query completed Thread conversations. This allows
+it to reference past work without carrying the full context:
+
+- `thread.search(query)` — semantic search across archived Threads
+- `thread.read(thread_id)` — read full conversation history of a Thread
+
+This provides a soft bridge between Main and Threads without merging their
+context windows.
 
 ### Multi-Device Behavior
 
@@ -170,15 +181,14 @@ prunes personal context to maximize objectivity and task-relevant information.
 
 The distinction is purely about context injection strategy — what memories and
 context the agent loads into the Thread's working window. Both types have
-identical capabilities in terms of Kit access and tool use.
+identical capabilities in terms of tool access.
 
 ### Thread Lifecycle
 
 ```
 Created ──→ Active ──→ Completing ──→ Archived
                 │           │
-                │           ├──→ Convert to Kit (Phase 3)
-                │           └──→ Convert to Task item (Phase 3)
+                │           └──→ Convert to Automation (Phase 3)
                 │
                 └──→ Paused (connection lost)
                         │
@@ -187,7 +197,7 @@ Created ──→ Active ──→ Completing ──→ Archived
 ```
 
 **Active.** The Thread has its own context window, managed independently from
-Main. The agent can use all enabled Kits (subject to the normal interactive
+Main. The agent can use all enabled tools (subject to the normal risk-level
 approval rules). Only one device can actively interact with a given Thread at a
 time. Other devices see the Thread in the sidebar but marked as "in use."
 
@@ -227,7 +237,7 @@ tabs on the same device).
 ### Thread Visibility
 
 - **Task and Focus Threads** are visible in the sidebar on all devices.
-- **Privacy and Incognito Threads** (see §4) are visible only on the
+- **Privacy and Incognito Threads** (see below) are visible only on the
   originating device.
 
 ---
@@ -265,22 +275,20 @@ While a device is in Privacy or Incognito mode, it does **not** see Main
 updates. The device is fully isolated. Upon exiting the mode, the device syncs
 back to Main's current state.
 
-Kit triggers continue to fire normally while a user is in Privacy/Incognito
-mode. Trigger results are written to memory as system events (since they are
-system-level, not user-level activity) but are not injected into the isolated
-context.
+Automation triggers continue to fire normally while a user is in
+Privacy/Incognito mode. Trigger results are written to memory as system events
+(since they are system-level, not user-level activity) but are not injected
+into the isolated context.
 
 ---
 
-## 5. Kit Automation and the Two Permission Systems
+## 5. Automation and Permissions
 
-DOTI has two completely independent permission systems. This is a critical
-design distinction.
+### Tool Risk Levels
 
-### System 1: Interactive Approval (User in Conversation)
-
-When the user is present in Main or a Thread and the agent calls a Kit tool,
-the existing risk-level system from Spec 01 applies:
+DOTI uses a single, unified permission system based on tool risk levels. This
+applies everywhere — interactive use in Main/Threads and background Automation
+Runs.
 
 | Risk Level | Meaning | Examples |
 |------------|---------|---------|
@@ -289,208 +297,150 @@ the existing risk-level system from Spec 01 applies:
 | `high` | System changes, hard to reverse | Delete files, execute shell |
 | `critical` | Destructive or irreversible | Bulk delete, send emails as user |
 
-The `security.kit_approval` config (`ask_first` / `auto` / `auto_with_allowlist`)
+The `security.tool_approval` config (`ask_first` / `auto` / `auto_with_allowlist`)
 determines which risk levels require per-tool approval. `high` and `critical`
-always require approval regardless of config.
+always require approval regardless of config — this is a safety invariant.
 
-**This system is unchanged from Spec 01.** It applies to any Kit tool call made
-while the user is actively interacting — whether in Main, a Task Thread, or a
-Focus Thread. The user is present, the context is clear, and per-tool approval
-is appropriate.
+### Interactive Use (User Present)
 
-### System 2: Automation Approval (Kit Runs in Background)
+When the user is in Main or a Thread and the agent calls a tool, the standard
+risk-level approval applies. The agent sends a `tool.request`, the user sees
+the request in the UI, and approves or denies.
 
-When a Kit's trigger fires and executes in the background (cron, webhook,
-sensor, etc.), a completely different permission model applies. The user is
-not present, so per-tool approval is inappropriate. Instead, the Kit goes
-through a **structured admission process** before it is allowed to run
-autonomously at all.
+### Automation Use (Background)
 
-#### Automation Admission Flow
+When an Automation Run executes (triggered by a Subscription matching an event),
+the same risk-level rules apply. The Automation does not have its own permission
+scope — it inherits from the tool declarations.
 
-```
-Kit installed
-  │
-  ├── Interactive tools available immediately
-  │   (governed by System 1, risk-level approval)
-  │
-  └── Automation DISABLED by default
-      (trigger code is NOT added to the event queue)
-      │
-      ▼
-Main agent reviews the Kit's automation
-  → Explains to user: "This Kit wants to run every morning at 8 AM
-     to organize your email. It will use these tools: ..."
-  → User agrees to enable automation
-      │
-      ▼
-Trial run (one supervised execution)
-  → Phase 1: Kit executes read-only operations, collects information
-  → Phase 2: Kit presents its write plan to the main agent
-  → Main agent summarizes the plan for the user in Main:
-     "Your email Kit sorted 47 messages. 3 need permanent deletion.
-      Here are the details. Approve?"
-  → User reviews and approves the result
-      │
-      ▼
-Automation activated
-  → Kit snapshot taken (frozen version of manifest + code)
-  → Trigger added to event queue
-  → Subsequent runs execute according to their tool risk profile:
-     - All-read Kit: fully automatic, no approval needed
-     - Mixed Kit: read phase automatic, write plan submitted for approval
-     - High-risk Kit: always submits for approval
-      │
-      ▼
-Kit changes detected (any modification to manifest or code)
-  → ALL automation for this Kit immediately disabled
-  → Trigger removed from event queue
-  → Must go through the full admission flow again
-```
+- `low` and `medium` tools: execute according to the configured approval mode
+- `high` and `critical` tools: the Run pauses, an approval request appears in
+  Main, and the user approves or denies
 
-#### Why Two Systems
+If the user is offline when approval is needed, the Run is suspended until
+reconnection. Pending approvals are shown in the sidebar and in Main.
 
-The interactive system (System 1) works because the user is present and has
-full context about what they asked for. "Delete this file" → agent calls
-`delete_file()` → user approves. The action is a direct response to the user's
-request.
+### Why One System, Not Two
 
-The automation system (System 2) works differently because the user is absent.
-A Kit running at 3 AM cannot ask the user to approve each tool call in
-real-time. Instead, it follows a trust model:
+The original design considered separate permission systems for interactive use
+and automation (the "Kit" model). This was abandoned because:
 
-1. **Trust is earned.** No Kit gets automation privileges by default.
-2. **Trust is version-locked.** The exact code that was approved is
-   snapshotted. Any change revokes trust.
-3. **Trust is graduated.** Read-only Kits get automatic trust. Write Kits
-   earn it through successful trial runs.
-4. **High-risk operations always come back to the user.** Even fully trusted
-   Kits pause and ask when they encounter destructive operations.
+1. **Cross-package permissions are intractable.** When an automation needs tools
+   from multiple packages, no single package "owns" the permission scope.
+2. **Per-tool risk levels are sufficient.** A tool that's dangerous interactively
+   is also dangerous in automation. The risk is inherent to the tool, not the
+   context.
+3. **Simpler mental model.** Users learn one system: "high-risk tools always
+   ask, low-risk tools follow my config."
 
-#### Automation Approval in Main
+### Automation Approval in Main
 
-When a running Kit needs user approval for its write plan, the approval
-request appears in Main. The main agent acts as a translator — it does not
-simply forward a raw tool call request. Instead, it:
+When a running Automation needs user approval, the approval request appears in
+Main. The Main agent acts as a translator — it does not simply forward a raw
+tool call request. Instead, it:
 
-1. Receives the Kit Run's collected information and proposed write plan
+1. Receives the Automation Run's context and the tool call it wants to make
 2. Summarizes it in natural language with full context
 3. Presents it to the user as a conversational message
 4. Waits for the user's decision
 
-This means the user never sees "Kit `email-organizer` wants to call
-`delete_email(id=msg_47abc)`. Allow?" Instead they see: "Your email Kit
-finished its morning sweep. It organized 47 messages into folders and found
-3 that look like spam. Want me to permanently delete those 3?"
-
-#### Kit Snapshot and Change Detection
-
-When a Kit's automation is activated, Core takes a snapshot of the Kit:
-
-- Manifest hash (all declared tools, triggers, instructions)
-- Code hash (MCP server implementation)
-
-Before each automated run, Core compares the current Kit state against the
-snapshot. If anything has changed — a tool was added, instructions were
-modified, the MCP server code was updated — Core:
-
-1. Removes the Kit's triggers from the event queue
-2. Disables all automation for this Kit
-3. Notifies the user in Main: "Kit [name] has been updated. Its automation
-   has been paused. Would you like to review and re-enable it?"
-
-The Kit's interactive tools remain available (governed by System 1). Only
-the automation is affected.
+This means the user never sees "`shell.exec` wants to run `rm -rf /tmp/old`."
+Instead they see: "Your file cleanup automation wants to delete 47 temporary
+files from `/tmp/old`. These are all older than 30 days. Approve?"
 
 ---
 
-## 6. Kit Runs (Monitoring)
+## 6. Automation Runs (Monitoring)
 
-Every Kit automation execution produces a **Kit Run** — a structured record
-of what happened.
+Every Automation execution produces an **Automation Run** — a structured record
+of what happened. Automation Runs replace the earlier "Kit Run" concept.
 
-### What a Kit Run Contains
+### What a Run Contains
 
-- Trigger that initiated the run (cron schedule, webhook event, sensor reading)
+- Subscription that initiated the run
+- Trigger event that matched
 - Timestamp and duration
-- Tools called (with inputs and outputs)
-- Phase 1 (read) results
-- Phase 2 (write) plan (if applicable)
-- Approval status and user response (if approval was required)
-- Final outcome (success, partial, failed, awaiting approval)
+- Thread ID (dedicated Thread created for this Run)
+- Tools called (with inputs, outputs, and risk levels)
+- Approval status and user responses (if any approvals were needed)
+- Final outcome (completed, failed, waiting_approval, cancelled)
+- Summary generated by the agent
 - Errors, if any
 
-### Kit Runs in the UI
+### Runs in the UI
 
-Kit Runs appear in the sidebar between Main and the Thread list:
+Automation Runs appear in the sidebar between Main and the Thread list:
 
 ```
 ┌─────────────────────────┐
-│  ● Main                 │
+│  Main                   │
 ├─────────────────────────┤
-│  ⚡ Kit Runs             │
-│    📧 Email digest (2m ago)
-│    📅 Calendar brief (6h ago)
-│    ⚠️ File backup (failed)
+│  Automation Runs        │
+│    Email triage (2m ago) │
+│    Calendar brief (6h)  │
+│    File backup (failed) │
 ├─────────────────────────┤
-│  + New Thread            │
-│    Task / Focus / Privacy / Incognito
+│  + New Thread           │
+│    Task / Focus         │
+│    Privacy / Incognito  │
 ├─────────────────────────┤
-│  ACTIVE THREADS          │
-│  📋 Refactor auth module │
-│  🔍 Rust vs Go research  │
+│  ACTIVE THREADS         │
+│  Refactor auth module   │
+│  Rust vs Go research    │
 ├─────────────────────────┤
-│  ARCHIVED                │
-│  ✓ Email cleanup (2/23)  │
-│  ✓ API design (2/20)     │
+│  ARCHIVED               │
+│  Email cleanup (2/23)   │
+│  API design (2/20)      │
 └─────────────────────────┘
 ```
 
-Clicking a Kit Run opens a detail view — not a conversation, but an execution
-log showing each step, its inputs/outputs, timing, and status. This is a
-monitoring interface, not a chat interface.
+Clicking an Automation Run opens a detail view — not a conversation, but an
+execution log showing each step, its inputs/outputs, timing, and status. This
+is a monitoring interface, not a chat interface.
 
-A Kit Run that is awaiting approval shows a badge in the sidebar, and its
-approval request appears in Main as described in §5.
+A Run that is awaiting approval shows a badge in the sidebar, and its approval
+request appears in Main as described in the previous section.
 
 ---
 
 ## 7. The Conversation-to-Automation Loop
 
-One of DOTI's defining features is the ability to turn interactive work into
-automated routines. The full loop:
+One of DOTI's goals is the ability to turn interactive work into automated
+routines. The full loop:
 
 ```
 1. User works with agent in a Thread
    "Help me organize my email every week"
    → Agent and user iterate on the approach
-   → Agent uses email Kit tools to sort, label, archive
+   → Agent uses email tools to sort, label, archive
 
 2. Thread completes and is archived
    → Summary written to memory
    → Full conversation history preserved
 
-3. User (or agent) suggests creating a Kit from this Thread (Phase 3)
-   → Main agent retrieves the archived Thread
+3. User (or agent) suggests creating an Automation (Phase 3)
+   → Agent retrieves the archived Thread
    → Analyzes tool call patterns, instructions, decision logic
-   → Generates a Kit manifest with:
-     - Trigger: cron (weekly)
-     - Instructions: the sorting/labeling logic from the Thread
-     - Tools: references to the email Kit's MCP tools
+   → Generates:
+     - A Routine (markdown instructions for the task)
+     - A Trigger (cron schedule for weekly execution)
+     - A Subscription (binding the trigger to the routine)
 
-4. Kit goes through automation admission
-   → Agent presents the Kit to the user
-   → Trial run → approval → snapshot → automation enabled
+4. Automation goes live
+   → Subscription registered
+   → Trigger starts running
+   → First Run executes in a dedicated Thread
+   → Results posted to Main for review
 
-5. Kit runs weekly on its own
-   → Read phase: scan inbox, categorize
-   → Write phase: submit plan to main agent → user approves (initially)
-   → After N successful runs: write phase auto-approves for safe operations
+5. Automation runs weekly on its own
+   → low/medium tools: auto-execute per config
+   → high/critical tools: pause and ask user in Main
 ```
 
 The user taught the agent how to do something through natural conversation.
-The agent codified that into a repeatable, automated process. The process
-earned trust through supervised execution. Now it runs on its own.
+The agent codified that into a Routine. A Trigger and Subscription were created
+to run it on schedule. The permission model is inherited from tool risk levels —
+no separate trust system needed.
 
 ---
 
@@ -504,15 +454,17 @@ earned trust through supervised execution. Now it runs on its own.
   the long_context model compresses older messages into a summary prefix.
 - **Reconnection recovery.** Main loads the most recent compression summary
   plus last N raw messages.
+- **Thread search.** Main agent can query archived Thread conversations via
+  `thread.search` and `thread.read` tools.
 - **Stored but not recalled.** All messages are persisted to the database for
   future Phase 3 indexing. Archived Threads are browsable but the agent cannot
-  automatically retrieve them.
+  automatically retrieve them (must use search tools explicitly).
 
 ### Phase 3 (Full)
 
 - **Long-term memory.** Vector-embedded semantic store built from Main
-  history, Thread summaries, and system events (Kit Run results, trigger
-  outputs).
+  history, Thread summaries, and system events (Automation Run results,
+  trigger outputs).
 - **Automatic recall.** On new connection or context switch, the agent
   retrieves relevant memories and injects them into context.
 - **Memory management API.** User can view, search, and delete stored memories.
@@ -528,63 +480,57 @@ earned trust through supervised execution. Now it runs on its own.
 
 ### Spec 01: Core API Protocol
 
-Major rewrite required.
+Updated in v3 to reflect this interaction model:
 
-- Remove all `session.*` message types and REST endpoints.
-- `chat.send` no longer carries `session_id`. Instead, messages target either
-  Main (default) or a specific Thread ID.
-- Add Thread lifecycle messages: `thread.create`, `thread.pause`,
-  `thread.resume`, `thread.complete`, `thread.archive`.
-- Add mode switching: `mode.switch`, `mode.current`.
-- Add Kit Run monitoring messages: `kit_run.status`, `kit_run.approval`.
-- Replace `kit.request` / `kit.approve` flow for automation with the
-  two-phase model (read results → write plan → approval in Main).
-- Interactive Kit approval (`kit.request` / `kit.approve`) remains for
-  System 1 (user-present) scenarios.
-- Update error codes: `session_not_found` → `thread_not_found`, add
-  `automation_disabled`, `snapshot_mismatch`, etc.
+- Removed session-based message types. `chat.send` targets Main (no thread_id)
+  or a specific Thread (with thread_id).
+- Added Thread lifecycle messages: `thread.create`, `thread.list`,
+  `thread.delete`.
+- Added Automation messages: `automation.run_started`, `automation.run_completed`,
+  `automation.approval`.
+- Unified tool approval: `tool.request` / `tool.approve` used for both
+  interactive and automation contexts.
+- Updated error codes: added `automation_disabled`, `trigger_not_found`,
+  `routine_not_found`.
 
 ### Spec 02: Config Format
 
-Add new configuration sections:
+Updated in v3:
 
-- `threads.auto_archive_timeout` — how long before a paused Thread
-  auto-archives (e.g., `24h`)
-- `threads.reconnection_messages` — value of N for Main reconnection
-- `memory.*` — placeholder for Phase 3 memory configuration
-- Privacy/Incognito modes: hardcoded to `ask_first` approval, not
-  configurable (safety invariant)
+- `security.kit_approval` → `security.tool_approval` (tools, not packages)
+- `security.kit_allowlist` → `security.tool_allowlist`
+- Added `workspace.path` for workspace root directory
+- Added `automation.*` config section (triggers, subscriptions, routines_dir,
+  retention settings)
+- Agent profile role `kit` renamed to `automation`
+
+### Spec 03: Automation System (New)
+
+New spec covering the full automation architecture:
+- Triggers, Event Queue, Subscriptions, Routines
+- Automation Run lifecycle
+- Permission inheritance model
 
 ### Spec 04: Storage Schema
 
 New tables needed:
 
-- `main_messages` — Main conversation history (replaces `sessions` /
-  `session_messages`)
+- `main_messages` — Main conversation history
 - `threads` — Thread metadata (type, status, created_at, archived_at, etc.)
 - `thread_messages` — Per-Thread message history
 - `compression_snapshots` — Stored compression summaries for Main and Threads
-- `kit_runs` — Kit automation execution records
-- `kit_snapshots` — Frozen Kit state for automation trust verification
+- `automation_triggers` — Registered trigger definitions
+- `automation_subscriptions` — Subscription rules
+- `automation_events` — Event Queue entries
+- `automation_runs` — Automation Run execution records
 - `memory` (Phase 3) — Long-term memory entries with embeddings
-
-### Spec 05: Kit Manifest
-
-Add automation-related declarations:
-
-- Two-phase execution structure: which tools are read-phase, which are
-  write-phase
-- Automation instructions (what the Kit should do when triggered, as distinct
-  from interactive usage instructions)
-- Snapshot-compatible versioning (manifest hash support)
-- Origin metadata for Kits generated from Threads (Phase 3)
 
 ### Spec 07: Concurrency Model
 
 - Main serialization: one message at a time in Main.
 - Thread isolation: each Thread has independent context and processing.
 - Thread locking: one active device per Thread at a time.
-- Kit Run concurrency: multiple Kit Runs can execute in parallel, but
+- Automation Run concurrency: multiple Runs can execute in parallel, but
   resource-level locking (Spec 07 existing design) prevents conflicts.
 
 ---
@@ -599,21 +545,28 @@ Add automation-related declarations:
 | Thread creation (Task, Focus) — agent-initiated and manual | 1 |
 | Thread lifecycle (active, paused, auto-archive) | 1 |
 | Thread archival with summary → Main message | 1 |
+| Thread search tools for Main agent | 1 |
 | Privacy and Incognito modes | 1 |
-| Sidebar (Main, Kit Runs, Threads) | 1 |
+| Sidebar (Main, Automation Runs, Threads) | 1 |
 | Multi-device Main sync | 1 |
-| Kit interactive approval (System 1, risk-level) | 1 |
-| Kit automation admission flow | 2 |
-| Kit two-phase execution (read → write plan → approve) | 2 |
-| Kit snapshot and change detection | 2 |
-| Kit Run monitoring UI | 2 |
+| Tool approval (risk-level based, unified system) | 1 |
+| Automation: Cron Trigger + Heartbeat Trigger | 1 |
+| Automation: Event Queue (in-memory + JSONL) | 1 |
+| Automation: Subscriptions (exact match) | 1 |
+| Automation: Routines (Markdown files) | 1 |
+| Automation: Basic Run lifecycle | 1 |
+| Automation: Run monitoring in sidebar | 1 |
 | Agent-suggested Thread creation (smart detection) | 2 |
+| Automation: File Watch Trigger | 2 |
+| Automation: Subscription management UI | 2 |
+| Automation: Run history and search | 2 |
 | Long-term memory (embedding + recall) | 3 |
 | Thread summary → memory writes | 3 |
 | Cross-context recall | 3 |
-| Thread → Kit conversion | 3 |
-| Thread → Task item (to-do + background job) | 3 |
-| Kit auto-trust upgrade (N successful runs) | 3 |
+| Thread → Automation conversion | 3 |
+| Automation: Webhook Trigger | 3 |
+| Automation: Threshold Trigger | 3 |
+| Automation: Advanced filters (JSONPath) | 3 |
 | Memory management API | 3 |
 
 ---
@@ -626,19 +579,20 @@ Add automation-related declarations:
 | 2 | Multi-client model? | Unified Main stream, shared across all devices. |
 | 3 | Mode switching scope? | Per-connection. One device can be in Incognito while others are in Main. |
 | 4 | Phase 1 memory depth? | Simplified: active context + compression. Full memory in Phase 3. |
-| 5 | Kit triggers in Privacy/Incognito? | Fire normally. Results written to memory as system events. Not injected into isolated context. |
-| 6 | Thread → Kit conversion phase? | Phase 3. |
-| 7 | Thread → Task item meaning? | Both to-do (agent follows up) and background job (agent continues async), depending on task nature. |
-| 8 | Task vs Focus selection? | Agent recommends based on described intent. User can override. |
-| 9 | Thread concurrency? | Multiple Threads active in parallel, no limit. |
-| 10 | Main reconnection? | Load most recent compression summary + last N raw messages. |
-| 11 | Kit interactive vs automation approval? | Two independent systems. Interactive: per-tool risk-level (Spec 01). Automation: two-phase admission + snapshot trust. |
-| 12 | Kit automation default? | Disabled on install. Requires agent review → user approval → trial run → snapshot before activation. |
-| 13 | Kit automation on change? | Immediately disabled. All triggers removed. Must re-run full admission flow. |
-| 14 | Kit auto-trust upgrade? | Read-only Kits: automatic trust. Mixed Kits: trust earned after N successful runs. High-risk: always requires approval. |
-| 15 | Thread creation rules? | Hardcoded in system prompt for Phase 1, configurable later. |
-| 16 | Thread archival? | Agent proactively suggests. Summary + memory extraction on archive. Assistant message injected into Main for follow-up. |
-| 17 | Privacy/Incognito tool approval? | Always `ask_first`, not configurable. Safety invariant. |
+| 5 | Triggers in Privacy/Incognito? | Fire normally. Results written to memory as system events. Not injected into isolated context. |
+| 6 | Thread → Automation conversion phase? | Phase 3. |
+| 7 | Task vs Focus selection? | Agent recommends based on described intent. User can override. |
+| 8 | Thread concurrency? | Multiple Threads active in parallel, no limit. |
+| 9 | Main reconnection? | Load most recent compression summary + last N raw messages. |
+| 10 | Permission model? | Single unified system based on tool risk levels. No separate automation permissions. Replaces the earlier "two-system Kit model." |
+| 11 | Tool approval invariant? | `high` and `critical` tools always require approval, regardless of config or context. |
+| 12 | Automation background approval? | Run pauses, approval request posted to Main. If user offline, Run suspended until reconnection. |
+| 13 | Thread creation rules? | Hardcoded in system prompt for Phase 1, configurable later. |
+| 14 | Thread archival? | Agent proactively suggests. Summary + memory extraction on archive. Assistant message injected into Main for follow-up. |
+| 15 | Privacy/Incognito tool approval? | Always `ask_first`, not configurable. Safety invariant. |
+| 16 | Skills vs Kits? | Abandoned Kit model. Skills provide tools + instructions. Automation is a separate system (Triggers → Event Queue → Subscriptions → Routines). |
+| 17 | Automation permissions? | Inherited from tool risk levels. No per-automation permission scope. |
+| 18 | Main access to Threads? | Main agent has `thread.search` and `thread.read` tools to query archived Threads. |
 
 ---
 
@@ -653,8 +607,8 @@ Add automation-related declarations:
 3. **Reconnection N value.** How many recent raw messages to load on Main
    reconnection. Fixed or configurable? Depends on model context window?
 
-4. **Background jobs (Phase 3).** When a Thread converts to a background job,
-   where do results appear? Main notification? Memory only? Dedicated UI?
+4. **Automation Run failure.** If a Run fails or the user rejects an approval,
+   what happens? Retry? Subscription stays active for the next trigger event?
 
 5. **Thread-to-Thread references.** Can a Focus Thread retrieve context from
    an active Task Thread? Or strictly isolated, sharing only via memory?
@@ -663,9 +617,6 @@ Add automation-related declarations:
    The final spec structure (whether this becomes Spec 03, gets folded into
    Spec 01, or splits across multiple specs) is TBD.
 
-7. **Kit trial run failure.** If a Kit's trial run fails or the user rejects
-   the result, what happens? Retry? Kit automation stays disabled until user
-   manually re-triggers?
-
-8. **Kit auto-trust threshold.** What value of N for "N successful runs before
-   auto-trust upgrade"? Fixed? Per-risk-level? Configurable?
+7. **Routine versioning.** When a Routine file is modified while a Subscription
+   is active, should the next Run use the new version immediately, or require
+   re-approval?
