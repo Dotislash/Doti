@@ -66,6 +66,13 @@ class HistorySyncPayload(BaseModel):
     has_more: bool = False
 
 
+class AgentThinkingPayload(BaseModel):
+    conversation_id: str
+    run_id: str
+    content: str
+    iteration: int
+
+
 class ToolRequestPayload(BaseModel):
     approval_id: str
     conversation_id: str
@@ -233,6 +240,13 @@ class ThreadUpdatedEnvelope(BaseModel):
     payload: ThreadUpdatedPayload
 
 
+class AgentThinkingEnvelope(BaseModel):
+    type: Literal["agent.thinking"] = "agent.thinking"
+    event_id: str = Field(default_factory=_new_event_id)
+    ts: int = Field(default_factory=_now_ts)
+    payload: AgentThinkingPayload
+
+
 class ToolRequestEnvelope(BaseModel):
     type: Literal["tool.request"] = "tool.request"
     event_id: str = Field(default_factory=_new_event_id)
@@ -263,6 +277,7 @@ ServerEnvelope = Annotated[
     | ThreadCreatedEnvelope
     | ThreadListResultEnvelope
     | ThreadUpdatedEnvelope
+    | AgentThinkingEnvelope
     | ToolRequestEnvelope
     | ToolResultEnvelope
     | ErrorEnvelope,

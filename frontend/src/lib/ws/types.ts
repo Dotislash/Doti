@@ -93,6 +93,14 @@ export type ThreadUpdatedPayload = {
   status?: string | null;
 };
 
+// Agent thinking
+export type AgentThinkingPayload = {
+  conversation_id: string;
+  run_id: string;
+  content: string;
+  iteration: number;
+};
+
 // Tool types
 export type ToolRequestPayload = {
   approval_id: string;
@@ -137,6 +145,7 @@ export type HistorySyncMessage = Envelope<"history.sync", HistorySyncPayload>;
 export type ThreadCreatedMessage = Envelope<"thread.created", ThreadInfoPayload>;
 export type ThreadListResultMessage = Envelope<"thread.list_result", ThreadListResultPayload>;
 export type ThreadUpdatedMessage = Envelope<"thread.updated", ThreadUpdatedPayload>;
+export type AgentThinkingMessage = Envelope<"agent.thinking", AgentThinkingPayload>;
 export type ToolRequestMessage = Envelope<"tool.request", ToolRequestPayload>;
 export type ToolResultMessage = Envelope<"tool.result", ToolResultPayload>;
 export type ErrorMessage = Envelope<"error", ErrorPayload>;
@@ -158,6 +167,7 @@ export type ServerMessage =
   | ThreadCreatedMessage
   | ThreadListResultMessage
   | ThreadUpdatedMessage
+  | AgentThinkingMessage
   | ToolRequestMessage
   | ToolResultMessage
   | ErrorMessage;

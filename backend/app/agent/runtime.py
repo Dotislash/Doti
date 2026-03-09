@@ -11,6 +11,8 @@ from ulid import ULID
 from app.agent.conversation import ConversationManager
 from app.agent.provider_client import ProviderClient
 from app.api.ws.protocol import (
+    AgentThinkingEnvelope,
+    AgentThinkingPayload,
     ChatDeltaEnvelope,
     ChatDeltaPayload,
     ChatFinalEnvelope,
@@ -40,7 +42,7 @@ async def execute_run(
     conversations: ConversationManager,
     registry: ToolRegistry | None = None,
 ) -> AsyncGenerator[
-    ChatDeltaEnvelope | ChatFinalEnvelope | RunStateEnvelope | ToolRequestEnvelope | ToolResultEnvelope,
+    AgentThinkingEnvelope | ChatDeltaEnvelope | ChatFinalEnvelope | RunStateEnvelope | ToolRequestEnvelope | ToolResultEnvelope,
     None,
 ]:
     """Execute a run: stream LLM response as protocol envelopes."""
@@ -106,6 +108,13 @@ async def execute_run(
                 return
 
             if result.tool_calls:
+                # Emit thinking content if the LLM produced reasoning alongside tool calls
+                if result.content:
+                    yield AgentThinkingEnvelope(payload=AgentThinkingPayload(
+                        conversation_id=cid, run_id=rid,
+                        content=result.content, iteration=iteration + 1,
+                    ))
+
                 assistant_tool_calls = []
                 for tc in result.tool_calls:
                     assistant_tool_calls.append({

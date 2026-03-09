@@ -5,6 +5,7 @@ import type { ClientMessage, RunState, ServerMessage, ThreadInfoPayload } from "
 
 export type ChatItem =
   | { kind: "message"; id: string; role: "user" | "assistant"; content: string }
+  | { kind: "thinking"; id: string; content: string; iteration: number }
   | { kind: "tool_request"; id: string; tool_name: string; arguments: Record<string, unknown>; risk_level: string; approval_id: string }
   | { kind: "tool_result"; id: string; tool_name: string; result: string; is_error: boolean };
 
@@ -202,6 +203,21 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           content: m.content,
         }));
         set({ messages: historyMessages });
+        return;
+      }
+
+      case "agent.thinking": {
+        set((state) => ({
+          messages: [
+            ...state.messages,
+            {
+              kind: "thinking",
+              id: createId(),
+              content: msg.payload.content,
+              iteration: msg.payload.iteration,
+            },
+          ],
+        }));
         return;
       }
 
