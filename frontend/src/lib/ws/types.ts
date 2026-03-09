@@ -4,7 +4,8 @@ export type ErrorCode =
   | "invalid_message"
   | "conversation_busy"
   | "internal_error"
-  | "provider_error";
+  | "provider_error"
+  | "thread_not_found";
 
 type Envelope<TType extends string, TPayload> = {
   type: TType;
@@ -49,28 +50,89 @@ export type RunStatePayload = {
   state: RunState;
 };
 
+export type HistoryMessagePayload = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  ts: number;
+};
+
+export type HistorySyncPayload = {
+  conversation_id: string;
+  messages: HistoryMessagePayload[];
+  has_more: boolean;
+};
+
+// Thread types
+export type ThreadCreatePayload = {
+  title?: string;
+  thread_type?: "task" | "focus";
+};
+
+export type ThreadListPayload = Record<string, never>;
+
+export type ThreadDeletePayload = {
+  thread_id: string;
+};
+
+export type ThreadInfoPayload = {
+  thread_id: string;
+  title: string | null;
+  thread_type: string;
+  status: string;
+  created_at: string;
+};
+
+export type ThreadListResultPayload = {
+  threads: ThreadInfoPayload[];
+};
+
+export type ThreadUpdatedPayload = {
+  thread_id: string;
+  title?: string | null;
+  status?: string | null;
+};
+
 export type ErrorPayload = {
   code: ErrorCode;
   message: string;
   run_id?: string;
 };
 
+// Client messages
 export type ClientHelloMessage = Envelope<"client.hello", ClientHelloPayload>;
 export type ChatSendMessage = Envelope<"chat.send", ChatSendPayload>;
+export type ThreadCreateMessage = Envelope<"thread.create", ThreadCreatePayload>;
+export type ThreadListMessage = Envelope<"thread.list", ThreadListPayload>;
+export type ThreadDeleteMessage = Envelope<"thread.delete", ThreadDeletePayload>;
 
+// Server messages
 export type ServerHelloMessage = Envelope<"server.hello", ServerHelloPayload>;
 export type ChatDeltaMessage = Envelope<"chat.delta", ChatDeltaPayload>;
 export type ChatFinalMessage = Envelope<"chat.final", ChatFinalPayload>;
 export type RunStateMessage = Envelope<"run.state", RunStatePayload>;
+export type HistorySyncMessage = Envelope<"history.sync", HistorySyncPayload>;
+export type ThreadCreatedMessage = Envelope<"thread.created", ThreadInfoPayload>;
+export type ThreadListResultMessage = Envelope<"thread.list_result", ThreadListResultPayload>;
+export type ThreadUpdatedMessage = Envelope<"thread.updated", ThreadUpdatedPayload>;
 export type ErrorMessage = Envelope<"error", ErrorPayload>;
 
-export type ClientMessage = ClientHelloMessage | ChatSendMessage;
+export type ClientMessage =
+  | ClientHelloMessage
+  | ChatSendMessage
+  | ThreadCreateMessage
+  | ThreadListMessage
+  | ThreadDeleteMessage;
 
 export type ServerMessage =
   | ServerHelloMessage
   | ChatDeltaMessage
   | ChatFinalMessage
   | RunStateMessage
+  | HistorySyncMessage
+  | ThreadCreatedMessage
+  | ThreadListResultMessage
+  | ThreadUpdatedMessage
   | ErrorMessage;
 
 export function parseServerMessage(data: string): ServerMessage {

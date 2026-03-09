@@ -53,12 +53,57 @@ class RunStatePayload(BaseModel):
     state: RunState
 
 
+class HistoryMessagePayload(BaseModel):
+    id: str
+    role: Literal["user", "assistant"]
+    content: str
+    ts: int
+
+
+class HistorySyncPayload(BaseModel):
+    conversation_id: str = "main"
+    messages: list[HistoryMessagePayload]
+    has_more: bool = False
+
+
+class ThreadCreatePayload(BaseModel):
+    title: str | None = None
+    thread_type: Literal["task", "focus"] = "task"
+
+
+class ThreadListPayload(BaseModel):
+    pass
+
+
+class ThreadDeletePayload(BaseModel):
+    thread_id: str
+
+
+class ThreadInfoPayload(BaseModel):
+    thread_id: str
+    title: str | None
+    thread_type: str
+    status: str
+    created_at: str
+
+
+class ThreadListResultPayload(BaseModel):
+    threads: list[ThreadInfoPayload]
+
+
+class ThreadUpdatedPayload(BaseModel):
+    thread_id: str
+    title: str | None = None
+    status: str | None = None
+
+
 class ErrorPayload(BaseModel):
     code: Literal[
         "invalid_message",
         "conversation_busy",
         "internal_error",
         "provider_error",
+        "thread_not_found",
     ]
     message: str
     run_id: str | None = None
@@ -78,8 +123,29 @@ class ChatSendEnvelope(BaseModel):
     payload: ChatSendPayload
 
 
+class ThreadCreateEnvelope(BaseModel):
+    type: Literal["thread.create"] = "thread.create"
+    event_id: str = Field(default_factory=_new_event_id)
+    ts: int = Field(default_factory=_now_ts)
+    payload: ThreadCreatePayload
+
+
+class ThreadListEnvelope(BaseModel):
+    type: Literal["thread.list"] = "thread.list"
+    event_id: str = Field(default_factory=_new_event_id)
+    ts: int = Field(default_factory=_now_ts)
+    payload: ThreadListPayload
+
+
+class ThreadDeleteEnvelope(BaseModel):
+    type: Literal["thread.delete"] = "thread.delete"
+    event_id: str = Field(default_factory=_new_event_id)
+    ts: int = Field(default_factory=_now_ts)
+    payload: ThreadDeletePayload
+
+
 ClientEnvelope = Annotated[
-    ClientHelloEnvelope | ChatSendEnvelope,
+    ClientHelloEnvelope | ChatSendEnvelope | ThreadCreateEnvelope | ThreadListEnvelope | ThreadDeleteEnvelope,
     Field(discriminator="type"),
 ]
 
@@ -112,6 +178,34 @@ class RunStateEnvelope(BaseModel):
     payload: RunStatePayload
 
 
+class HistorySyncEnvelope(BaseModel):
+    type: Literal["history.sync"] = "history.sync"
+    event_id: str = Field(default_factory=_new_event_id)
+    ts: int = Field(default_factory=_now_ts)
+    payload: HistorySyncPayload
+
+
+class ThreadCreatedEnvelope(BaseModel):
+    type: Literal["thread.created"] = "thread.created"
+    event_id: str = Field(default_factory=_new_event_id)
+    ts: int = Field(default_factory=_now_ts)
+    payload: ThreadInfoPayload
+
+
+class ThreadListResultEnvelope(BaseModel):
+    type: Literal["thread.list_result"] = "thread.list_result"
+    event_id: str = Field(default_factory=_new_event_id)
+    ts: int = Field(default_factory=_now_ts)
+    payload: ThreadListResultPayload
+
+
+class ThreadUpdatedEnvelope(BaseModel):
+    type: Literal["thread.updated"] = "thread.updated"
+    event_id: str = Field(default_factory=_new_event_id)
+    ts: int = Field(default_factory=_now_ts)
+    payload: ThreadUpdatedPayload
+
+
 class ErrorEnvelope(BaseModel):
     type: Literal["error"] = "error"
     event_id: str = Field(default_factory=_new_event_id)
@@ -124,6 +218,10 @@ ServerEnvelope = Annotated[
     | ChatDeltaEnvelope
     | ChatFinalEnvelope
     | RunStateEnvelope
+    | HistorySyncEnvelope
+    | ThreadCreatedEnvelope
+    | ThreadListResultEnvelope
+    | ThreadUpdatedEnvelope
     | ErrorEnvelope,
     Field(discriminator="type"),
 ]

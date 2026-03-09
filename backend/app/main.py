@@ -1,11 +1,21 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.ws.router import router as ws_router
+from app.api.rest.routes import router as rest_router, set_stores
+from app.api.ws.router import router as ws_router, _get_store, _get_thread_store
 
-app = FastAPI(title="doti-backend")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    set_stores(_get_store(), _get_thread_store())
+    yield
+
+
+app = FastAPI(title="doti-backend", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -16,8 +26,4 @@ app.add_middleware(
 )
 
 app.include_router(ws_router)
-
-
-@app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+app.include_router(rest_router)

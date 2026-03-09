@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import { ChatView } from "@/features/chat/ChatView";
+import { Sidebar } from "@/features/sidebar/Sidebar";
 import { useChatStore } from "@/state/chatStore";
 
 export default function App() {
@@ -10,5 +11,12 @@ export default function App() {
     connect();
   }, [connect]);
 
-  return <ChatView />;
+  return (
+    <div className="flex h-screen">
+      <Sidebar />
+      <div className="flex-1">
+        <ChatView />
+      </div>
+    </div>
+  );
 }

@@ -11,6 +11,8 @@ export function ChatView() {
   const runState = useChatStore((s) => s.runState);
   const error = useChatStore((s) => s.error);
   const sendMessage = useChatStore((s) => s.sendMessage);
+  const activeConversation = useChatStore((s) => s.activeConversation);
+  const threads = useChatStore((s) => s.threads);
 
   const [dismissedError, setDismissedError] = useState<string | null>(null);
   const visibleError = error && error !== dismissedError ? error : null;
@@ -22,13 +24,24 @@ export function ChatView() {
     return { dot: "bg-emerald-400", label: "Ready" };
   }, [error, runState]);
 
+  const headerTitle = useMemo(() => {
+    if (activeConversation === "main") return null;
+    const thread = threads.find((t) => t.thread_id === activeConversation);
+    return thread?.title || "Thread";
+  }, [activeConversation, threads]);
+
   return (
     <div className="flex h-screen flex-col">
       {/* Header */}
       <header className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--border)] px-5">
-        <h1 className="text-sm font-semibold tracking-[0.2em] text-[var(--text-primary)]">
-          DOTI<span className="text-[var(--accent)]">.</span>
-        </h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-sm font-semibold tracking-[0.2em] text-[var(--text-primary)]">
+            DOTI<span className="text-[var(--accent)]">.</span>
+          </h1>
+          {headerTitle && (
+            <span className="text-xs text-[var(--text-muted)]">/ {headerTitle}</span>
+          )}
+        </div>
         <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
           <span className={`h-2 w-2 rounded-full ${status.dot}`} />
           {status.label}

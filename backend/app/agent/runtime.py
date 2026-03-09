@@ -30,7 +30,7 @@ async def execute_run(
     rid = run.run_id
 
     # Add user message to history
-    conversations.add_user_message(cid, user_message)
+    await conversations.add_user_message(cid, user_message)
 
     # Signal: running
     run.state = RunState.running
@@ -58,7 +58,7 @@ async def execute_run(
             ))
 
         # Save assistant response to history
-        conversations.add_assistant_message(cid, full_content)
+        await conversations.add_assistant_message(cid, full_content)
 
         msg = Message(conversation_id=cid, role="assistant", content=full_content)
         yield ChatFinalEnvelope(payload=ChatFinalPayload(
