@@ -3,19 +3,103 @@
 @tailwind utilities;
 
 :root {
-  --bg-primary: #0B1020;
-  --bg-secondary: #131832;
-  --bg-tertiary: #1A2040;
-  --text-primary: #E8ECF4;
-  --text-secondary: #8B95B0;
-  --accent: #4F8CFF;
-  --accent-hover: #6BA0FF;
-  --border: #1E2848;
+  --bg-primary: #0b1020;
+  --bg-secondary: #111a33;
+  --bg-tertiary: #192648;
+  --text-primary: #e8ecf4;
+  --text-secondary: #98a5c6;
+  --text-muted: #7f8ba8;
+  --accent: #5f91ff;
+  --accent-hover: #78a4ff;
+  --border: rgba(159, 184, 255, 0.14);
+  --glass: rgba(17, 26, 51, 0.62);
+  --user-bg: rgba(120, 164, 255, 0.12);
+  --assistant-bg: rgba(16, 25, 49, 0.72);
 }
 
 body {
   margin: 0;
-  background-color: var(--bg-primary);
+  min-height: 100vh;
+  background:
+    radial-gradient(1000px 600px at 12% -10%, rgba(95, 145, 255, 0.2), transparent 55%),
+    radial-gradient(900px 500px at 88% 0%, rgba(53, 214, 196, 0.12), transparent 50%),
+    var(--bg-primary);
   color: var(--text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+@keyframes cursor-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes message-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes thinking-pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@layer utilities {
+  .animate-cursor-pulse {
+    animation: cursor-pulse 1s ease-in-out infinite;
+  }
+
+  .animate-message-in {
+    animation: message-in 240ms ease-out both;
+  }
+
+  .animate-thinking {
+    animation: thinking-pulse 1.2s ease-in-out infinite;
+  }
+}
+
+.chat-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(137, 164, 226, 0.4) transparent;
+}
+
+.chat-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(126, 159, 235, 0.7), rgba(126, 159, 235, 0.35));
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.chat-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(144, 175, 246, 0.82), rgba(144, 175, 246, 0.46));
 }

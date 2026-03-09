@@ -6,6 +6,7 @@ from collections.abc import AsyncGenerator
 
 from loguru import logger
 
+from app.agent.conversation import ConversationManager
 from app.agent.provider_client import ProviderClient
 from app.api.ws.protocol import (
     ChatDeltaEnvelope,
@@ -22,14 +23,14 @@ async def execute_run(
     run: RunContext,
     user_message: str,
     provider: ProviderClient,
+    conversations: ConversationManager,
 ) -> AsyncGenerator[ChatDeltaEnvelope | ChatFinalEnvelope | RunStateEnvelope, None]:
-    """Execute a run: stream LLM response as protocol envelopes.
-
-    Yields:
-        RunStateEnvelope(running) → ChatDeltaEnvelope* → ChatFinalEnvelope → RunStateEnvelope(completed)
-    """
+    """Execute a run: stream LLM response as protocol envelopes."""
     cid = run.conversation_id
     rid = run.run_id
+
+    # Add user message to history
+    conversations.add_user_message(cid, user_message)
 
     # Signal: running
     run.state = RunState.running
@@ -37,11 +38,7 @@ async def execute_run(
         run_id=rid, conversation_id=cid, state=RunState.running,
     ))
 
-    messages = [
-        {"role": "system", "content": "You are a helpful AI assistant."},
-        {"role": "user", "content": user_message},
-    ]
-
+    messages = conversations.get_messages(cid)
     seq = 0
     full_content = ""
 
@@ -60,7 +57,9 @@ async def execute_run(
                 conversation_id=cid, run_id=rid, seq=seq, delta=token,
             ))
 
-        # Final message
+        # Save assistant response to history
+        conversations.add_assistant_message(cid, full_content)
+
         msg = Message(conversation_id=cid, role="assistant", content=full_content)
         yield ChatFinalEnvelope(payload=ChatFinalPayload(
             conversation_id=cid, run_id=rid,

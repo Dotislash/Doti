@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
 
+from app.agent.conversation import ConversationManager
 from app.agent.provider_client import ProviderClient
 from app.agent.runtime import execute_run
 from app.api.ws.connection_manager import ConnectionManager
@@ -49,7 +50,7 @@ def _get_provider() -> ProviderClient:
     return _provider
 
 
-# Track active runs per conversation to enforce single-run constraint
+_conversations = ConversationManager()
 _active_runs: dict[str, str] = {}  # conversation_id -> run_id
 
 
@@ -108,7 +109,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 ))
 
                 try:
-                    async for envelope in execute_run(run, content, _get_provider()):
+                    async for envelope in execute_run(run, content, _get_provider(), _conversations):
                         await manager.send(websocket, envelope)
                 finally:
                     _active_runs.pop(cid, None)

@@ -27,7 +27,7 @@ def test_ws_hello(client):
         assert data["payload"]["protocol_version"] == "1.0"
 
 
-async def _fake_stream(messages):
+async def _fake_stream(_messages):
     """Mock stream that yields tokens."""
     for token in ["Hello", " world", "!"]:
         yield token
