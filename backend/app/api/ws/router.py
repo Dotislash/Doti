@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
 
 from app.agent.conversation import ConversationManager
 from app.agent.provider_client import ProviderClient
-from app.agent.runtime import execute_run
+from app.agent.runtime import ApprovalGate, execute_run
 from app.api.ws.connection_manager import ConnectionManager
 from app.api.ws.protocol import (
     ErrorEnvelope,
@@ -44,6 +46,8 @@ _thread_store: ThreadStore | None = None
 _conversations: ConversationManager | None = None
 _registry: ToolRegistry | None = None
 _active_runs: dict[str, str] = {}  # conversation_id -> run_id
+_approval_gates: dict[str, ApprovalGate] = {}  # conversation_id -> approval gate
+_run_tasks: set[asyncio.Task[None]] = set()
 
 
 def _get_config() -> RuntimeConfig:
@@ -94,7 +98,7 @@ async def _get_conversations() -> ConversationManager:
     global _conversations
     if _conversations is None:
         store = _get_store()
-        _conversations = ConversationManager(store=store)
+        _conversations = ConversationManager(store=store, thread_store=_get_thread_store())
         await _conversations.load_history("main")
     return _conversations
 
@@ -175,6 +179,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     ))
                     continue
 
+                if cid not in conversations._histories:
+                    await conversations.load_history(cid)
+
                 run = RunContext(conversation_id=cid)
                 _active_runs[cid] = run.run_id
 
@@ -185,11 +192,56 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     ),
                 ))
 
-                try:
-                    async for envelope in execute_run(run, content, _get_provider(), conversations, _get_registry()):
-                        await manager.send(websocket, envelope)
-                finally:
-                    _active_runs.pop(cid, None)
+                gate = ApprovalGate()
+                _approval_gates[cid] = gate
+
+                async def _run_agent(
+                    _run: RunContext = run,
+                    _content: str = content,
+                    _cid: str = cid,
+                    _gate: ApprovalGate = gate,
+                ) -> None:
+                    try:
+                        async for envelope in execute_run(
+                            _run,
+                            _content,
+                            _get_provider(),
+                            conversations,
+                            _get_registry(),
+                            _gate,
+                        ):
+                            await manager.send(websocket, envelope)
+                    except Exception:
+                        logger.exception("Run failed run_id={} conversation_id={}", _run.run_id, _cid)
+                        await manager.send(websocket, ErrorEnvelope(
+                            payload=ErrorPayload(
+                                code="internal_error",
+                                message="Run failed",
+                                run_id=_run.run_id,
+                            ),
+                        ))
+                    finally:
+                        _active_runs.pop(_cid, None)
+                        _approval_gates.pop(_cid, None)
+
+                task = asyncio.create_task(_run_agent())
+                _run_tasks.add(task)
+                task.add_done_callback(_run_tasks.discard)
+
+            elif msg.type == "tool.approve":
+                resolved = False
+                for gate in _approval_gates.values():
+                    if gate.resolve(msg.payload.approval_id, msg.payload.approved):
+                        resolved = True
+                        break
+
+                if not resolved:
+                    await manager.send(websocket, ErrorEnvelope(
+                        payload=ErrorPayload(
+                            code="internal_error",
+                            message=f"No pending approval found for {msg.payload.approval_id}",
+                        ),
+                    ))
 
             elif msg.type == "thread.create":
                 thread = Thread(

@@ -27,6 +27,7 @@ type ChatStore = {
   threads: ThreadInfo[];
   connect: () => void;
   sendMessage: (content: string) => void;
+  approveToolCall: (approvalId: string, approved: boolean) => void;
   switchConversation: (id: string) => void;
   createThread: (title?: string, type?: "task" | "focus") => void;
   deleteThread: (threadId: string) => void;
@@ -98,6 +99,20 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }));
 
     client.send(outbound);
+  },
+
+  approveToolCall: (approvalId: string, approved: boolean) => {
+    get().connect();
+    const client = get().client!;
+    client.send({
+      type: "tool.approve",
+      event_id: createId(),
+      ts: Date.now(),
+      payload: {
+        approval_id: approvalId,
+        approved,
+      },
+    });
   },
 
   switchConversation: (id: string) => {

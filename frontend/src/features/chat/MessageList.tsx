@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Markdown } from "@/features/chat/Markdown";
+import { useChatStore } from "@/state/chatStore";
 import type { ChatItem } from "@/state/chatStore";
 
 type MessageListProps = {
@@ -41,6 +42,8 @@ function ThinkingCard({ item }: { item: Extract<ChatItem, { kind: "thinking" }> 
 /* ── Tool call group (request + result pair) ── */
 function ToolRequestCard({ item }: { item: Extract<ChatItem, { kind: "tool_request" }> }) {
   const [expanded, setExpanded] = useState(false);
+  const [approved, setApproved] = useState<boolean | null>(null);
+  const requiresApproval = item.risk_level === "high" || item.risk_level === "critical";
   const riskColors: Record<string, string> = {
     low: "text-emerald-400 bg-emerald-500/10",
     medium: "text-blue-400 bg-blue-500/10",
@@ -56,6 +59,16 @@ function ToolRequestCard({ item }: { item: Extract<ChatItem, { kind: "tool_reque
     shell_exec: "⚡",
   };
   const icon = toolIcons[item.tool_name] || "🔧";
+
+  const onApprove = () => {
+    useChatStore.getState().approveToolCall(item.approval_id, true);
+    setApproved(true);
+  };
+
+  const onDeny = () => {
+    useChatStore.getState().approveToolCall(item.approval_id, false);
+    setApproved(false);
+  };
 
   return (
     <div className="animate-message-in my-0.5">
@@ -83,6 +96,38 @@ function ToolRequestCard({ item }: { item: Extract<ChatItem, { kind: "tool_reque
           <pre className="overflow-x-auto text-[12px] leading-5 text-[var(--text-secondary)]">
             {JSON.stringify(item.arguments, null, 2)}
           </pre>
+        </div>
+      )}
+      {requiresApproval && approved === null && (
+        <div className="mt-1 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onApprove}
+            className="rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-1 text-xs font-medium text-emerald-300 transition hover:border-emerald-400/60 hover:bg-emerald-500/15"
+          >
+            Approve
+          </button>
+          <button
+            type="button"
+            onClick={onDeny}
+            className="rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-1 text-xs font-medium text-rose-300 transition hover:border-rose-400/60 hover:bg-rose-500/15"
+          >
+            Deny
+          </button>
+        </div>
+      )}
+      {requiresApproval && approved === true && (
+        <div className="mt-1">
+          <span className="inline-flex rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+            Approved
+          </span>
+        </div>
+      )}
+      {requiresApproval && approved === false && (
+        <div className="mt-1">
+          <span className="inline-flex rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-2 py-0.5 text-[10px] font-medium text-rose-300">
+            Denied
+          </span>
         </div>
       )}
     </div>

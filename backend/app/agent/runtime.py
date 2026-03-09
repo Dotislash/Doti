@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncGenerator
 
@@ -31,6 +32,28 @@ from app.tools.registry import ToolRegistry
 MAX_TOOL_ITERATIONS = 10
 
 
+class ApprovalGate:
+    """Manages pending tool approvals via asyncio Futures."""
+
+    def __init__(self):
+        self._pending: dict[str, asyncio.Future[bool]] = {}
+
+    def create(self, approval_id: str) -> asyncio.Future[bool]:
+        """Create a pending approval, returns a future to await."""
+        loop = asyncio.get_running_loop()
+        fut = loop.create_future()
+        self._pending[approval_id] = fut
+        return fut
+
+    def resolve(self, approval_id: str, approved: bool) -> bool:
+        """Resolve a pending approval. Returns True if found."""
+        fut = self._pending.pop(approval_id, None)
+        if fut is not None and not fut.done():
+            fut.set_result(approved)
+            return True
+        return False
+
+
 def _new_approval_id() -> str:
     return f"apr_{ULID()}"
 
@@ -41,6 +64,7 @@ async def execute_run(
     provider: ProviderClient,
     conversations: ConversationManager,
     registry: ToolRegistry | None = None,
+    gate: ApprovalGate | None = None,
 ) -> AsyncGenerator[
     AgentThinkingEnvelope | ChatDeltaEnvelope | ChatFinalEnvelope | RunStateEnvelope | ToolRequestEnvelope | ToolResultEnvelope,
     None,
@@ -133,6 +157,8 @@ async def execute_run(
                 })
 
                 for tc in result.tool_calls:
+                    tool_result = ToolResult(output="Tool execution failed", is_error=True)
+                    should_execute = True
                     try:
                         arguments = json.loads(tc.arguments) if tc.arguments else {}
                         if not isinstance(arguments, dict):
@@ -144,26 +170,57 @@ async def execute_run(
                             is_error=True,
                         )
                         risk_level = RiskLevel.high
+                        should_execute = False
                     else:
                         tool = registry.get(tc.name) if registry is not None else None
                         risk_level = tool.risk_level if tool is not None else RiskLevel.critical
 
-                        if risk_level in {RiskLevel.high, RiskLevel.critical}:
-                            approval_id = _new_approval_id()
-                            yield ToolRequestEnvelope(payload=ToolRequestPayload(
-                                approval_id=approval_id,
-                                conversation_id=cid,
-                                tool_name=tc.name,
-                                arguments=arguments,
-                                risk_level=risk_level.value,
-                            ))
+                    approval_id = _new_approval_id()
+                    yield ToolRequestEnvelope(payload=ToolRequestPayload(
+                        approval_id=approval_id,
+                        conversation_id=cid,
+                        tool_name=tc.name,
+                        arguments=arguments,
+                        risk_level=risk_level.value,
+                    ))
+
+                    if should_execute and risk_level in {RiskLevel.high, RiskLevel.critical}:
+                        if gate is None:
                             logger.info(
-                                "Auto-approving high-risk tool call run={} tool={} approval_id={}",
+                                "No approval gate; proceeding tool call run={} tool={} approval_id={}",
                                 rid,
                                 tc.name,
                                 approval_id,
                             )
+                        else:
+                            logger.info(
+                                "Waiting for tool approval run={} tool={} approval_id={}",
+                                rid,
+                                tc.name,
+                                approval_id,
+                            )
+                            approved = await gate.create(approval_id)
+                            if not approved:
+                                logger.info(
+                                    "Tool approval denied run={} tool={} approval_id={}",
+                                    rid,
+                                    tc.name,
+                                    approval_id,
+                                )
+                                tool_result = ToolResult(
+                                    output="Tool call denied by user",
+                                    is_error=True,
+                                )
+                                should_execute = False
+                            else:
+                                logger.info(
+                                    "Tool approval granted run={} tool={} approval_id={}",
+                                    rid,
+                                    tc.name,
+                                    approval_id,
+                                )
 
+                    if should_execute:
                         try:
                             if registry is None:
                                 raise KeyError(f"Tool not found: {tc.name}")

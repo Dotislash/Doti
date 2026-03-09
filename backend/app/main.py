@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.automation.event_queue import EventQueue
+from app.automation.routines import RoutineManager
 from app.api.rest.routes import router as rest_router, set_stores
 from app.api.ws.router import router as ws_router, _get_store, _get_thread_store
 
@@ -12,7 +14,15 @@ from app.api.ws.router import router as ws_router, _get_store, _get_thread_store
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     set_stores(_get_store(), _get_thread_store())
-    yield
+    queue = EventQueue()
+    manager = RoutineManager(queue)
+    app.state.event_queue = queue
+    app.state.routine_manager = manager
+    await manager.start()
+    try:
+        yield
+    finally:
+        await manager.stop()
 
 
 app = FastAPI(title="doti-backend", lifespan=lifespan)
