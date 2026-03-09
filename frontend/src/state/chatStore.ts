@@ -3,11 +3,10 @@ import { create } from "zustand";
 import { DotiWsClient } from "@/lib/ws/client";
 import type { ClientMessage, RunState, ServerMessage, ThreadInfoPayload } from "@/lib/ws/types";
 
-type ChatItem = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-};
+export type ChatItem =
+  | { kind: "message"; id: string; role: "user" | "assistant"; content: string }
+  | { kind: "tool_request"; id: string; tool_name: string; arguments: Record<string, unknown>; risk_level: string; approval_id: string }
+  | { kind: "tool_result"; id: string; tool_name: string; result: string; is_error: boolean };
 
 type ThreadInfo = {
   thread_id: string;
@@ -18,18 +17,13 @@ type ThreadInfo = {
 };
 
 type ChatStore = {
-  // Current conversation
-  activeConversation: string; // "main" or thread_id
+  activeConversation: string;
   messages: ChatItem[];
   streamingContent: string;
   isStreaming: boolean;
   runState: RunState | null;
   error: string | null;
-
-  // Threads
   threads: ThreadInfo[];
-
-  // Actions
   connect: () => void;
   sendMessage: (content: string) => void;
   switchConversation: (id: string) => void;
@@ -78,6 +72,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     const cid = get().activeConversation;
 
     const userMessage: ChatItem = {
+      kind: "message",
       id: createId(),
       role: "user",
       content: trimmed,
@@ -112,17 +107,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       isStreaming: false,
       error: null,
     });
-    // Request history for the new conversation
     const client = get().client;
     if (!client) return;
-    // For threads, we don't have a WS history.sync per-thread yet
-    // So we fetch via REST
     if (id !== "main") {
       fetch(`/api/v1/threads/${id}/messages?limit=50`)
         .then((r) => r.json())
         .then((data) => {
-          if (get().activeConversation !== id) return; // stale
+          if (get().activeConversation !== id) return;
           const msgs: ChatItem[] = (data.messages || []).map((m: { id: string; role: "user" | "assistant"; content: string }) => ({
+            kind: "message" as const,
             id: m.id,
             role: m.role,
             content: m.content,
@@ -136,29 +129,23 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   createThread: (title?: string, type?: "task" | "focus") => {
     get().connect();
     const client = get().client!;
-    const outbound: ClientMessage = {
+    client.send({
       type: "thread.create",
       event_id: createId(),
       ts: Date.now(),
-      payload: {
-        title: title,
-        thread_type: type || "task",
-      },
-    };
-    client.send(outbound);
+      payload: { title, thread_type: type || "task" },
+    });
   },
 
   deleteThread: (threadId: string) => {
     get().connect();
     const client = get().client!;
-    const outbound: ClientMessage = {
+    client.send({
       type: "thread.delete",
       event_id: createId(),
       ts: Date.now(),
       payload: { thread_id: threadId },
-    };
-    client.send(outbound);
-    // If we're viewing the deleted thread, switch to main
+    });
     if (get().activeConversation === threadId) {
       get().switchConversation("main");
     }
@@ -167,13 +154,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   refreshThreads: () => {
     get().connect();
     const client = get().client!;
-    const outbound: ClientMessage = {
+    client.send({
       type: "thread.list",
       event_id: createId(),
       ts: Date.now(),
       payload: {},
-    };
-    client.send(outbound);
+    });
   },
 
   handleServerMessage: (msg: ServerMessage) => {
@@ -189,11 +175,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         set((state) => ({
           messages: [
             ...state.messages,
-            {
-              id: msg.payload.message_id,
-              role: "assistant",
-              content: msg.payload.content,
-            },
+            { kind: "message", id: msg.payload.message_id, role: "assistant", content: msg.payload.content },
           ],
           streamingContent: "",
           isStreaming: false,
@@ -208,16 +190,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }
 
       case "error": {
-        set({
-          error: msg.payload.message,
-          isStreaming: false,
-          streamingContent: "",
-        });
+        set({ error: msg.payload.message, isStreaming: false, streamingContent: "" });
         return;
       }
 
       case "history.sync": {
         const historyMessages: ChatItem[] = msg.payload.messages.map((m) => ({
+          kind: "message" as const,
           id: m.id,
           role: m.role,
           content: m.content,
@@ -226,29 +205,62 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         return;
       }
 
-      case "thread.created": {
-        const info: ThreadInfo = {
-          thread_id: msg.payload.thread_id,
-          title: msg.payload.title,
-          thread_type: msg.payload.thread_type,
-          status: msg.payload.status,
-          created_at: msg.payload.created_at,
-        };
+      case "tool.request": {
         set((state) => ({
-          threads: [...state.threads, info],
+          messages: [
+            ...state.messages,
+            {
+              kind: "tool_request",
+              id: msg.payload.approval_id,
+              tool_name: msg.payload.tool_name,
+              arguments: msg.payload.arguments,
+              risk_level: msg.payload.risk_level,
+              approval_id: msg.payload.approval_id,
+            },
+          ],
+        }));
+        return;
+      }
+
+      case "tool.result": {
+        set((state) => ({
+          messages: [
+            ...state.messages,
+            {
+              kind: "tool_result",
+              id: createId(),
+              tool_name: msg.payload.tool_name,
+              result: msg.payload.result,
+              is_error: msg.payload.is_error,
+            },
+          ],
+        }));
+        return;
+      }
+
+      case "thread.created": {
+        set((state) => ({
+          threads: [...state.threads, {
+            thread_id: msg.payload.thread_id,
+            title: msg.payload.title,
+            thread_type: msg.payload.thread_type,
+            status: msg.payload.status,
+            created_at: msg.payload.created_at,
+          }],
         }));
         return;
       }
 
       case "thread.list_result": {
-        const threads: ThreadInfo[] = msg.payload.threads.map((t: ThreadInfoPayload) => ({
-          thread_id: t.thread_id,
-          title: t.title,
-          thread_type: t.thread_type,
-          status: t.status,
-          created_at: t.created_at,
-        }));
-        set({ threads });
+        set({
+          threads: msg.payload.threads.map((t: ThreadInfoPayload) => ({
+            thread_id: t.thread_id,
+            title: t.title,
+            thread_type: t.thread_type,
+            status: t.status,
+            created_at: t.created_at,
+          })),
+        });
         return;
       }
 
@@ -273,7 +285,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }
 
       case "server.hello": {
-        // Request thread list on connect
         get().refreshThreads();
         return;
       }

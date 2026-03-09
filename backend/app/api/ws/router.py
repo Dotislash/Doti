@@ -31,6 +31,7 @@ from app.core.config.runtime_config import RuntimeConfig
 from app.core.models import RunContext, RunState, Thread, ThreadType
 from app.storage.message_store import MessageStore
 from app.storage.thread_store import ThreadStore
+from app.tools.registry import ToolRegistry, create_default_registry
 
 router = APIRouter()
 manager = ConnectionManager()
@@ -41,6 +42,7 @@ _config: RuntimeConfig | None = None
 _store: MessageStore | None = None
 _thread_store: ThreadStore | None = None
 _conversations: ConversationManager | None = None
+_registry: ToolRegistry | None = None
 _active_runs: dict[str, str] = {}  # conversation_id -> run_id
 
 
@@ -79,6 +81,13 @@ def _get_thread_store() -> ThreadStore:
         cfg = _get_config()
         _thread_store = ThreadStore(base_dir=cfg.workspace)
     return _thread_store
+
+
+def _get_registry() -> ToolRegistry:
+    global _registry
+    if _registry is None:
+        _registry = create_default_registry()
+    return _registry
 
 
 async def _get_conversations() -> ConversationManager:
@@ -177,7 +186,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 ))
 
                 try:
-                    async for envelope in execute_run(run, content, _get_provider(), conversations):
+                    async for envelope in execute_run(run, content, _get_provider(), conversations, _get_registry()):
                         await manager.send(websocket, envelope)
                 finally:
                     _active_runs.pop(cid, None)

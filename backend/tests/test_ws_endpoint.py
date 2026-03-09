@@ -41,10 +41,15 @@ async def _fake_stream(_messages):
 
 
 def test_ws_chat_send_streaming(client):
-    with patch("app.api.ws.router._get_provider") as mock_get:
+    with patch("app.api.ws.router._get_provider") as mock_get, \
+         patch("app.api.ws.router._get_registry") as mock_reg:
         mock_provider = AsyncMock()
         mock_provider.stream_chat = _fake_stream
         mock_get.return_value = mock_provider
+
+        # Empty registry so runtime falls back to simple streaming
+        from app.tools.registry import ToolRegistry
+        mock_reg.return_value = ToolRegistry()
 
         with client.websocket_connect("/ws") as ws:
             ws.receive_json()  # server.hello

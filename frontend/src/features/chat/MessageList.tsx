@@ -1,18 +1,54 @@
 import { useEffect, useMemo, useRef } from "react";
 
 import { Markdown } from "@/features/chat/Markdown";
-
-type ChatMessage = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-};
+import type { ChatItem } from "@/state/chatStore";
 
 type MessageListProps = {
-  messages: ChatMessage[];
+  messages: ChatItem[];
   streamingContent: string;
   isStreaming: boolean;
 };
+
+function ToolRequestCard({ item }: { item: Extract<ChatItem, { kind: "tool_request" }> }) {
+  return (
+    <div className="animate-message-in my-1">
+      <div className="rounded-lg border border-amber-500/20 bg-amber-950/20 px-3 py-2">
+        <div className="flex items-center gap-2 text-xs">
+          <span className="rounded bg-amber-500/20 px-1.5 py-0.5 font-mono text-amber-300">
+            {item.tool_name}
+          </span>
+          <span className="text-amber-400/60">{item.risk_level}</span>
+        </div>
+        <pre className="mt-1.5 overflow-x-auto text-[12px] leading-5 text-[var(--text-muted)]">
+          {JSON.stringify(item.arguments, null, 2)}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+function ToolResultCard({ item }: { item: Extract<ChatItem, { kind: "tool_result" }> }) {
+  const borderColor = item.is_error ? "border-rose-500/20" : "border-emerald-500/20";
+  const bgColor = item.is_error ? "bg-rose-950/20" : "bg-emerald-950/20";
+  const labelColor = item.is_error ? "text-rose-300" : "text-emerald-300";
+  const labelBg = item.is_error ? "bg-rose-500/20" : "bg-emerald-500/20";
+
+  return (
+    <div className="animate-message-in my-1">
+      <div className={`rounded-lg border ${borderColor} ${bgColor} px-3 py-2`}>
+        <div className="flex items-center gap-2 text-xs">
+          <span className={`rounded ${labelBg} px-1.5 py-0.5 font-mono ${labelColor}`}>
+            {item.tool_name}
+          </span>
+          <span className={labelColor}>{item.is_error ? "error" : "result"}</span>
+        </div>
+        <pre className="chat-scroll mt-1.5 max-h-[200px] overflow-auto text-[12px] leading-5 text-[var(--text-secondary)]">
+          {item.result}
+        </pre>
+      </div>
+    </div>
+  );
+}
 
 export function MessageList({ messages, streamingContent, isStreaming }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -21,7 +57,7 @@ export function MessageList({ messages, streamingContent, isStreaming }: Message
     if (!isStreaming || !streamingContent) return messages;
     return [
       ...messages,
-      { id: "streaming", role: "assistant" as const, content: streamingContent },
+      { kind: "message" as const, id: "streaming", role: "assistant" as const, content: streamingContent },
     ];
   }, [isStreaming, messages, streamingContent]);
 
@@ -48,22 +84,31 @@ export function MessageList({ messages, streamingContent, isStreaming }: Message
           </div>
         )}
 
-        {items.map((msg, i) => {
-          const isUser = msg.role === "user";
+        {items.map((item, i) => {
+          if (item.kind === "tool_request") {
+            return <ToolRequestCard key={item.id} item={item} />;
+          }
+
+          if (item.kind === "tool_result") {
+            return <ToolResultCard key={item.id} item={item} />;
+          }
+
+          // kind === "message"
+          const isUser = item.role === "user";
           const isStreamingRow = isStreaming && i === items.length - 1 && !!streamingContent;
 
           if (isUser) {
             return (
-              <div key={msg.id} className="animate-message-in flex justify-end">
+              <div key={item.id} className="animate-message-in flex justify-end">
                 <div className="max-w-[85%] rounded-2xl rounded-br-md bg-[var(--accent)] px-4 py-2.5 text-[15px] leading-relaxed text-white shadow-md">
-                  {msg.content}
+                  {item.content}
                 </div>
               </div>
             );
           }
 
           return (
-            <div key={msg.id} className="animate-message-in">
+            <div key={item.id} className="animate-message-in">
               <div className="mb-1.5 flex items-center gap-1.5">
                 <span className="text-xs text-[var(--accent)]">✦</span>
                 <span className="text-[11px] font-medium uppercase tracking-widest text-[var(--text-muted)]">
@@ -71,7 +116,7 @@ export function MessageList({ messages, streamingContent, isStreaming }: Message
                 </span>
               </div>
               <div className="text-[15px] leading-[1.75] text-[var(--text-primary)]">
-                <Markdown content={msg.content} />
+                <Markdown content={item.content} />
                 {isStreamingRow && (
                   <span className="animate-cursor-pulse text-[var(--accent)]">▍</span>
                 )}

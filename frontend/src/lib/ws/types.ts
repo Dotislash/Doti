@@ -93,6 +93,27 @@ export type ThreadUpdatedPayload = {
   status?: string | null;
 };
 
+// Tool types
+export type ToolRequestPayload = {
+  approval_id: string;
+  conversation_id: string;
+  tool_name: string;
+  arguments: Record<string, unknown>;
+  risk_level: string;
+};
+
+export type ToolResultPayload = {
+  conversation_id: string;
+  tool_name: string;
+  result: string;
+  is_error: boolean;
+};
+
+export type ToolApprovePayload = {
+  approval_id: string;
+  approved: boolean;
+};
+
 export type ErrorPayload = {
   code: ErrorCode;
   message: string;
@@ -105,6 +126,7 @@ export type ChatSendMessage = Envelope<"chat.send", ChatSendPayload>;
 export type ThreadCreateMessage = Envelope<"thread.create", ThreadCreatePayload>;
 export type ThreadListMessage = Envelope<"thread.list", ThreadListPayload>;
 export type ThreadDeleteMessage = Envelope<"thread.delete", ThreadDeletePayload>;
+export type ToolApproveMessage = Envelope<"tool.approve", ToolApprovePayload>;
 
 // Server messages
 export type ServerHelloMessage = Envelope<"server.hello", ServerHelloPayload>;
@@ -115,6 +137,8 @@ export type HistorySyncMessage = Envelope<"history.sync", HistorySyncPayload>;
 export type ThreadCreatedMessage = Envelope<"thread.created", ThreadInfoPayload>;
 export type ThreadListResultMessage = Envelope<"thread.list_result", ThreadListResultPayload>;
 export type ThreadUpdatedMessage = Envelope<"thread.updated", ThreadUpdatedPayload>;
+export type ToolRequestMessage = Envelope<"tool.request", ToolRequestPayload>;
+export type ToolResultMessage = Envelope<"tool.result", ToolResultPayload>;
 export type ErrorMessage = Envelope<"error", ErrorPayload>;
 
 export type ClientMessage =
@@ -122,7 +146,8 @@ export type ClientMessage =
   | ChatSendMessage
   | ThreadCreateMessage
   | ThreadListMessage
-  | ThreadDeleteMessage;
+  | ThreadDeleteMessage
+  | ToolApproveMessage;
 
 export type ServerMessage =
   | ServerHelloMessage
@@ -133,6 +158,8 @@ export type ServerMessage =
   | ThreadCreatedMessage
   | ThreadListResultMessage
   | ThreadUpdatedMessage
+  | ToolRequestMessage
+  | ToolResultMessage
   | ErrorMessage;
 
 export function parseServerMessage(data: string): ServerMessage {

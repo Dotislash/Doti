@@ -66,6 +66,26 @@ class HistorySyncPayload(BaseModel):
     has_more: bool = False
 
 
+class ToolRequestPayload(BaseModel):
+    approval_id: str
+    conversation_id: str
+    tool_name: str
+    arguments: dict
+    risk_level: str
+
+
+class ToolResultPayload(BaseModel):
+    conversation_id: str
+    tool_name: str
+    result: str
+    is_error: bool = False
+
+
+class ToolApprovePayload(BaseModel):
+    approval_id: str
+    approved: bool
+
+
 class ThreadCreatePayload(BaseModel):
     title: str | None = None
     thread_type: Literal["task", "focus"] = "task"
@@ -144,8 +164,15 @@ class ThreadDeleteEnvelope(BaseModel):
     payload: ThreadDeletePayload
 
 
+class ToolApproveEnvelope(BaseModel):
+    type: Literal["tool.approve"] = "tool.approve"
+    event_id: str = Field(default_factory=_new_event_id)
+    ts: int = Field(default_factory=_now_ts)
+    payload: ToolApprovePayload
+
+
 ClientEnvelope = Annotated[
-    ClientHelloEnvelope | ChatSendEnvelope | ThreadCreateEnvelope | ThreadListEnvelope | ThreadDeleteEnvelope,
+    ClientHelloEnvelope | ChatSendEnvelope | ThreadCreateEnvelope | ThreadListEnvelope | ThreadDeleteEnvelope | ToolApproveEnvelope,
     Field(discriminator="type"),
 ]
 
@@ -206,6 +233,20 @@ class ThreadUpdatedEnvelope(BaseModel):
     payload: ThreadUpdatedPayload
 
 
+class ToolRequestEnvelope(BaseModel):
+    type: Literal["tool.request"] = "tool.request"
+    event_id: str = Field(default_factory=_new_event_id)
+    ts: int = Field(default_factory=_now_ts)
+    payload: ToolRequestPayload
+
+
+class ToolResultEnvelope(BaseModel):
+    type: Literal["tool.result"] = "tool.result"
+    event_id: str = Field(default_factory=_new_event_id)
+    ts: int = Field(default_factory=_now_ts)
+    payload: ToolResultPayload
+
+
 class ErrorEnvelope(BaseModel):
     type: Literal["error"] = "error"
     event_id: str = Field(default_factory=_new_event_id)
@@ -222,6 +263,8 @@ ServerEnvelope = Annotated[
     | ThreadCreatedEnvelope
     | ThreadListResultEnvelope
     | ThreadUpdatedEnvelope
+    | ToolRequestEnvelope
+    | ToolResultEnvelope
     | ErrorEnvelope,
     Field(discriminator="type"),
 ]
