@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { useChatStore } from "@/state/chatStore";
 
@@ -8,6 +8,15 @@ export function Sidebar() {
   const switchConversation = useChatStore((s) => s.switchConversation);
   const createThread = useChatStore((s) => s.createThread);
   const deleteThread = useChatStore((s) => s.deleteThread);
+  const runState = useChatStore((s) => s.runState);
+  const error = useChatStore((s) => s.error);
+  const isStreaming = useChatStore((s) => s.isStreaming);
+
+  const statusDot = useMemo(() => {
+    if (error) return "bg-rose-400";
+    if (isStreaming || runState === "queued" || runState === "running") return "bg-amber-300 animate-pulse";
+    return "bg-emerald-400";
+  }, [error, isStreaming, runState]);
 
   const [showCreate, setShowCreate] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -33,7 +42,7 @@ export function Sidebar() {
               : "text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
           }`}
         >
-          <span className="text-base">&#9679;</span>
+          <span className={`h-2 w-2 shrink-0 rounded-full ${activeConversation === "main" ? statusDot : "bg-[var(--text-muted)]/30"}`} />
           Main
         </button>
       </div>
@@ -94,8 +103,9 @@ export function Sidebar() {
               >
                 <button
                   onClick={() => switchConversation(t.thread_id)}
-                  className="flex-1 truncate text-left"
+                  className="flex flex-1 items-center gap-2 truncate text-left"
                 >
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${activeConversation === t.thread_id ? statusDot : "bg-[var(--text-muted)]/30"}`} />
                   {t.title || "Untitled"}
                 </button>
                 <button
