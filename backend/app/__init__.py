@@ -1,0 +1,1 @@
+"""DOTI backend application."""
