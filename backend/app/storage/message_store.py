@@ -23,6 +23,12 @@ class MessageStore:
             "content": content,
             "ts": int(datetime.now(timezone.utc).timestamp()),
         }
+        await self.append_item(payload)
+
+    async def append_item(self, item: dict) -> None:
+        payload = dict(item)
+        if "ts" not in payload:
+            payload["ts"] = int(datetime.now(timezone.utc).timestamp())
         async with aiofiles.open(self.store_path, mode="a", encoding="utf-8") as f:
             await f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 

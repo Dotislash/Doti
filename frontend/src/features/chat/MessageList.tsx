@@ -92,7 +92,7 @@ function ToolRequestCard({ item }: { item: Extract<ChatItem, { kind: "tool_reque
         </svg>
       </button>
       {expanded && (
-        <div className="mt-0.5 rounded-lg border border-[var(--border)] bg-[#080e1e] px-3 py-2">
+        <div className="mt-0.5 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2">
           <pre className="overflow-x-auto text-[12px] leading-5 text-[var(--text-secondary)]">
             {JSON.stringify(item.arguments, null, 2)}
           </pre>
@@ -164,7 +164,7 @@ function ToolResultCard({ item }: { item: Extract<ChatItem, { kind: "tool_result
         </svg>
       </button>
       {expanded && (
-        <div className="mt-0.5 rounded-lg border border-[var(--border)] bg-[#080e1e] px-3 py-2">
+        <div className="mt-0.5 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2">
           <pre className="chat-scroll max-h-[300px] overflow-auto text-[12px] leading-5 text-[var(--text-secondary)]">
             {item.result}
           </pre>

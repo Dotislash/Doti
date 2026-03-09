@@ -12,6 +12,7 @@ from app.agent.provider_client import ProviderClient
 from app.agent.runtime import ApprovalGate, execute_run
 from app.api.ws.connection_manager import ConnectionManager
 from app.api.ws.protocol import (
+    AgentThinkingEnvelope,
     ErrorEnvelope,
     ErrorPayload,
     HistoryMessagePayload,
@@ -27,6 +28,8 @@ from app.api.ws.protocol import (
     ThreadListResultPayload,
     ThreadUpdatedEnvelope,
     ThreadUpdatedPayload,
+    ToolRequestEnvelope,
+    ToolResultEnvelope,
     parse_client_message,
 )
 from app.core.config.runtime_config import RuntimeConfig
@@ -104,26 +107,55 @@ async def _get_conversations() -> ConversationManager:
 
 
 async def _build_history_sync(conversation_id: str = "main") -> HistorySyncEnvelope:
-    """Build a history.sync envelope with recent messages."""
+    """Build a history.sync envelope with messages and raw history items."""
     if conversation_id == "main":
         store = _get_store()
-        recent = await store.load_recent(50)
+        loaded = await store.load_all()
     else:
         ts = _get_thread_store()
-        recent = await ts.load_thread_messages(conversation_id, 50)
+        loaded = await ts.load_thread_messages(conversation_id, 50)
+
+    items: list[dict] = []
+    for item in loaded:
+        if not isinstance(item, dict):
+            continue
+
+        if isinstance(item.get("kind"), str):
+            normalized = dict(item)
+            normalized.setdefault("ts", 0)
+            items.append(normalized)
+            continue
+
+        role = item.get("role")
+        content = item.get("content")
+        message_id = item.get("id")
+        if (
+            isinstance(role, str)
+            and isinstance(content, str)
+            and isinstance(message_id, str)
+            and role in ("user", "assistant")
+        ):
+            items.append({
+                "kind": "message",
+                "id": message_id,
+                "role": role,
+                "content": content,
+                "ts": item.get("ts", 0),
+            })
 
     messages = [
         HistoryMessagePayload(
             id=m["id"], role=m["role"], content=m["content"], ts=m["ts"],
         )
-        for m in recent
-        if m.get("role") in ("user", "assistant")
+        for m in items
+        if m.get("kind") == "message" and m.get("role") in ("user", "assistant")
     ]
     return HistorySyncEnvelope(
         payload=HistorySyncPayload(
             conversation_id=conversation_id,
             messages=messages,
-            has_more=len(messages) >= 50,
+            items=items,
+            has_more=len(items) >= 50,
         ),
     )
 
@@ -211,6 +243,35 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                             _gate,
                         ):
                             await manager.send(websocket, envelope)
+
+                            if _cid != "main":
+                                continue
+
+                            store = _get_store()
+                            if isinstance(envelope, AgentThinkingEnvelope):
+                                await store.append_item({
+                                    "kind": "thinking",
+                                    "id": envelope.event_id,
+                                    "content": envelope.payload.content,
+                                    "iteration": envelope.payload.iteration,
+                                })
+                            elif isinstance(envelope, ToolRequestEnvelope):
+                                await store.append_item({
+                                    "kind": "tool_request",
+                                    "id": envelope.event_id,
+                                    "tool_name": envelope.payload.tool_name,
+                                    "arguments": envelope.payload.arguments,
+                                    "risk_level": envelope.payload.risk_level,
+                                    "approval_id": envelope.payload.approval_id,
+                                })
+                            elif isinstance(envelope, ToolResultEnvelope):
+                                await store.append_item({
+                                    "kind": "tool_result",
+                                    "id": envelope.event_id,
+                                    "tool_name": envelope.payload.tool_name,
+                                    "result": envelope.payload.result,
+                                    "is_error": envelope.payload.is_error,
+                                })
                     except Exception:
                         logger.exception("Run failed run_id={} conversation_id={}", _run.run_id, _cid)
                         await manager.send(websocket, ErrorEnvelope(

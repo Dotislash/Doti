@@ -5,6 +5,8 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from app.api.ws import router as ws_router_module
+from app.core.config.runtime_config import RuntimeConfig
 from app.core.models import Thread, ThreadType
 
 router = APIRouter(prefix="/api/v1")
@@ -12,6 +14,16 @@ router = APIRouter(prefix="/api/v1")
 # Stores injected at app startup
 _message_store = None
 _thread_store = None
+_runtime_config: RuntimeConfig | None = None
+
+KNOWN_MODELS = [
+    "anthropic/claude-sonnet-4-5",
+    "anthropic/claude-opus-4-5",
+    "openai/gpt-4o",
+    "openai/gpt-4o-mini",
+    "openai/o1",
+    "openai/o3-mini",
+]
 
 
 def set_stores(message_store, thread_store) -> None:
@@ -20,9 +32,68 @@ def set_stores(message_store, thread_store) -> None:
     _thread_store = thread_store
 
 
+def set_config(config: RuntimeConfig) -> None:
+    global _runtime_config
+    _runtime_config = config
+    ws_router_module._config = config
+    ws_router_module._provider = None
+
+
+def _get_runtime_config() -> RuntimeConfig:
+    global _runtime_config
+    if _runtime_config is None:
+        _runtime_config = ws_router_module._get_config()
+    return _runtime_config
+
+
+def _mask_api_key(api_key: str | None) -> str | None:
+    if not api_key:
+        return None
+    suffix = api_key[-4:]
+    return f"sk-...****{suffix}"
+
+
+def _public_config(config: RuntimeConfig) -> dict:
+    data = config.model_dump()
+    data.pop("workspace", None)
+    data.pop("host", None)
+    data.pop("port", None)
+    data["api_key"] = _mask_api_key(config.api_key)
+    return data
+
+
+class ConfigUpdateRequest(BaseModel):
+    model: str | None = None
+    api_key: str | None = None
+    api_base: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+
+
 @router.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.get("/config")
+async def get_config() -> dict:
+    config = _get_runtime_config()
+    return _public_config(config)
+
+
+@router.patch("/config")
+async def update_config(body: ConfigUpdateRequest) -> dict:
+    config = _get_runtime_config()
+    updates = body.model_dump(exclude_none=True)
+    for field, value in updates.items():
+        setattr(config, field, value)
+    set_config(config)
+    return _public_config(config)
+
+
+@router.get("/config/models")
+async def list_known_models() -> dict[str, list[str]]:
+    return {"models": KNOWN_MODELS}
 
 
 @router.get("/main/messages")

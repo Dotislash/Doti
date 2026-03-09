@@ -1,11 +1,13 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import type { Components } from "react-markdown";
 
 const components: Components = {
   pre({ children }) {
     return (
-      <pre className="my-2 overflow-x-auto rounded-lg border border-[var(--border)] bg-[#080e1e] p-3 text-[13px] leading-6">
+      <pre className="my-2 overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] p-3 text-[13px] leading-6">
         {children}
       </pre>
     );
@@ -84,7 +86,7 @@ type MarkdownProps = {
 
 export function Markdown({ content }: MarkdownProps) {
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+    <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={components}>
       {content}
     </ReactMarkdown>
   );

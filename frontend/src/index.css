@@ -2,7 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+:root,
+[data-theme="dark"] {
   --bg-primary: #0b1020;
   --bg-secondary: #111a33;
   --bg-tertiary: #192648;
@@ -14,11 +15,24 @@
   --border: rgba(140, 170, 230, 0.12);
 }
 
+[data-theme="light"] {
+  --bg-primary: #f8f9fc;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #eef1f6;
+  --text-primary: #1a1d26;
+  --text-secondary: #4a5068;
+  --text-muted: #8b93a8;
+  --accent: #4a7bef;
+  --accent-hover: #3a6bdf;
+  --border: rgba(30, 50, 100, 0.1);
+}
+
 body {
   margin: 0;
   min-height: 100vh;
   background: var(--bg-primary);
   color: var(--text-primary);
+  transition: background-color 0.2s ease, color 0.2s ease;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
@@ -68,4 +82,14 @@ body {
 }
 .chat-scroll::-webkit-scrollbar-thumb:hover {
   background: rgba(120, 150, 210, 0.5);
+}
+
+[data-theme="light"] .chat-scroll {
+  scrollbar-color: rgba(80, 100, 140, 0.25) transparent;
+}
+[data-theme="light"] .chat-scroll::-webkit-scrollbar-thumb {
+  background: rgba(80, 100, 140, 0.25);
+}
+[data-theme="light"] .chat-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(80, 100, 140, 0.4);
 }

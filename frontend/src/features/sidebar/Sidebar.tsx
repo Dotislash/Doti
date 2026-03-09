@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useChatStore } from "@/state/chatStore";
+import { SettingsPanel } from "@/features/settings/SettingsPanel";
 
 export function Sidebar() {
   const threads = useChatStore((s) => s.threads);
@@ -20,6 +21,12 @@ export function Sidebar() {
 
   const [showCreate, setShowCreate] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  const [showSettings, setShowSettings] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("doti-theme");
+    if (saved) document.documentElement.setAttribute("data-theme", saved);
+  }, []);
 
   const handleCreate = () => {
     createThread(newTitle || undefined, "task");
@@ -144,8 +151,21 @@ export function Sidebar() {
 
       {/* Version info */}
       <div className="border-t border-[var(--border)] p-3">
-        <p className="text-[10px] text-[var(--text-muted)]">DOTI v0.1</p>
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] text-[var(--text-muted)]">DOTI v0.1</p>
+          <button
+            type="button"
+            onClick={() => setShowSettings(true)}
+            className="rounded-md p-1 text-[var(--text-muted)] transition hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-secondary)]"
+            aria-label="Open settings"
+            title="Settings"
+          >
+            ⚙
+          </button>
+        </div>
       </div>
+
+      <SettingsPanel isOpen={showSettings} onClose={() => setShowSettings(false)} />
     </aside>
   );
 }

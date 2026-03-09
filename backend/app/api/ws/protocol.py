@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from ulid import ULID
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
@@ -63,6 +63,7 @@ class HistoryMessagePayload(BaseModel):
 class HistorySyncPayload(BaseModel):
     conversation_id: str = "main"
     messages: list[HistoryMessagePayload]
+    items: list[dict[str, Any]] = Field(default_factory=list)
     has_more: bool = False
 
 

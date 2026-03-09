@@ -60,6 +60,7 @@ export type HistoryMessagePayload = {
 export type HistorySyncPayload = {
   conversation_id: string;
   messages: HistoryMessagePayload[];
+  items?: Record<string, unknown>[];
   has_more: boolean;
 };
 

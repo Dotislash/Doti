@@ -211,13 +211,54 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }
 
       case "history.sync": {
-        const historyMessages: ChatItem[] = msg.payload.messages.map((m) => ({
-          kind: "message" as const,
-          id: m.id,
-          role: m.role,
-          content: m.content,
-        }));
-        set({ messages: historyMessages });
+        const items = msg.payload.items;
+        if (items && items.length > 0) {
+          const parsed: ChatItem[] = [];
+          for (const item of items) {
+            const kind = item.kind as string;
+            if (kind === "message") {
+              parsed.push({
+                kind: "message",
+                id: item.id as string,
+                role: item.role as "user" | "assistant",
+                content: item.content as string,
+              });
+            } else if (kind === "thinking") {
+              parsed.push({
+                kind: "thinking",
+                id: item.id as string,
+                content: item.content as string,
+                iteration: item.iteration as number,
+              });
+            } else if (kind === "tool_request") {
+              parsed.push({
+                kind: "tool_request",
+                id: item.id as string,
+                tool_name: item.tool_name as string,
+                arguments: item.arguments as Record<string, unknown>,
+                risk_level: item.risk_level as string,
+                approval_id: item.approval_id as string,
+              });
+            } else if (kind === "tool_result") {
+              parsed.push({
+                kind: "tool_result",
+                id: item.id as string,
+                tool_name: item.tool_name as string,
+                result: item.result as string,
+                is_error: item.is_error as boolean,
+              });
+            }
+          }
+          set({ messages: parsed });
+        } else {
+          const historyMessages: ChatItem[] = msg.payload.messages.map((m) => ({
+            kind: "message" as const,
+            id: m.id,
+            role: m.role,
+            content: m.content,
+          }));
+          set({ messages: historyMessages });
+        }
         return;
       }
 

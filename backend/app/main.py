@@ -7,13 +7,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.automation.event_queue import EventQueue
 from app.automation.routines import RoutineManager
-from app.api.rest.routes import router as rest_router, set_stores
-from app.api.ws.router import router as ws_router, _get_store, _get_thread_store
+from app.api.rest.routes import router as rest_router, set_stores, set_config
+from app.api.ws.router import router as ws_router, _get_store, _get_thread_store, _get_config
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     set_stores(_get_store(), _get_thread_store())
+    set_config(_get_config())
     queue = EventQueue()
     manager = RoutineManager(queue)
     app.state.event_queue = queue
