@@ -25,11 +25,14 @@ from app.api.ws.protocol import (
     ToolResultEnvelope,
     ToolResultPayload,
 )
+from app.core.audit import log_tool_request, log_tool_result
+from app.core.config.models import SecurityConfig, ToolApprovalPolicy
 from app.core.models import Message, RunContext, RunState
 from app.tools.base import RiskLevel, ToolResult
 from app.tools.registry import ToolRegistry
 
 MAX_TOOL_ITERATIONS = 10
+APPROVAL_TIMEOUT_SECONDS = 300  # 5 minutes
 
 
 class ApprovalGate:
@@ -65,6 +68,7 @@ async def execute_run(
     conversations: ConversationManager,
     registry: ToolRegistry | None = None,
     gate: ApprovalGate | None = None,
+    security: SecurityConfig | None = None,
 ) -> AsyncGenerator[
     AgentThinkingEnvelope | ChatDeltaEnvelope | ChatFinalEnvelope | RunStateEnvelope | ToolRequestEnvelope | ToolResultEnvelope,
     None,
@@ -176,6 +180,8 @@ async def execute_run(
                         risk_level = tool.risk_level if tool is not None else RiskLevel.critical
 
                     approval_id = _new_approval_id()
+                    args_summary = str(arguments)[:200]
+                    log_tool_request(rid, cid, tc.name, args_summary, risk_level.value, approval_id)
                     yield ToolRequestEnvelope(payload=ToolRequestPayload(
                         approval_id=approval_id,
                         conversation_id=cid,
@@ -184,40 +190,61 @@ async def execute_run(
                         risk_level=risk_level.value,
                     ))
 
-                    if should_execute and risk_level in {RiskLevel.high, RiskLevel.critical}:
+                    # Determine if approval is needed based on security policy
+                    # Shell execution ALWAYS requires approval regardless of policy
+                    ALWAYS_APPROVE_TOOLS = {"shell_exec"}
+                    needs_approval = risk_level in {RiskLevel.high, RiskLevel.critical}
+                    if tc.name in ALWAYS_APPROVE_TOOLS:
+                        needs_approval = True
+                    elif should_execute and security is not None:
+                        if security.tool_approval == ToolApprovalPolicy.auto:
+                            needs_approval = False
+                        elif security.tool_approval == ToolApprovalPolicy.auto_with_allowlist:
+                            needs_approval = tc.name not in security.tool_allowlist
+
+                    if should_execute and needs_approval:
                         if gate is None:
                             logger.info(
                                 "No approval gate; proceeding tool call run={} tool={} approval_id={}",
-                                rid,
-                                tc.name,
-                                approval_id,
+                                rid, tc.name, approval_id,
                             )
                         else:
                             logger.info(
                                 "Waiting for tool approval run={} tool={} approval_id={}",
-                                rid,
-                                tc.name,
-                                approval_id,
+                                rid, tc.name, approval_id,
                             )
-                            approved = await gate.create(approval_id)
-                            if not approved:
-                                logger.info(
-                                    "Tool approval denied run={} tool={} approval_id={}",
-                                    rid,
-                                    tc.name,
-                                    approval_id,
+                            try:
+                                approved = await asyncio.wait_for(
+                                    gate.create(approval_id),
+                                    timeout=APPROVAL_TIMEOUT_SECONDS,
+                                )
+                            except asyncio.TimeoutError:
+                                logger.warning(
+                                    "Tool approval timed out run={} tool={} approval_id={}",
+                                    rid, tc.name, approval_id,
                                 )
                                 tool_result = ToolResult(
-                                    output="Tool call denied by user",
+                                    output=f"Tool approval timed out after {APPROVAL_TIMEOUT_SECONDS}s",
                                     is_error=True,
                                 )
                                 should_execute = False
+                                approved = False
+
+                            if not approved:
+                                if should_execute:
+                                    logger.info(
+                                        "Tool approval denied run={} tool={} approval_id={}",
+                                        rid, tc.name, approval_id,
+                                    )
+                                    tool_result = ToolResult(
+                                        output="Tool call denied by user",
+                                        is_error=True,
+                                    )
+                                    should_execute = False
                             else:
                                 logger.info(
                                     "Tool approval granted run={} tool={} approval_id={}",
-                                    rid,
-                                    tc.name,
-                                    approval_id,
+                                    rid, tc.name, approval_id,
                                 )
 
                     if should_execute:
@@ -228,6 +255,7 @@ async def execute_run(
                         except Exception as exc:
                             tool_result = ToolResult(output=str(exc), is_error=True)
 
+                    log_tool_result(rid, cid, tc.name, tool_result.is_error, tool_result.output)
                     yield ToolResultEnvelope(payload=ToolResultPayload(
                         conversation_id=cid,
                         tool_name=tc.name,
@@ -244,14 +272,15 @@ async def execute_run(
 
                 continue
 
-            final_content = result.content
+            final_content = result.content or ""
             if final_content:
                 seq += 1
                 yield ChatDeltaEnvelope(payload=ChatDeltaPayload(
                     conversation_id=cid, run_id=rid, seq=seq, delta=final_content,
                 ))
 
-            await conversations.add_assistant_message(cid, final_content)
+            if final_content:
+                await conversations.add_assistant_message(cid, final_content)
             msg = Message(conversation_id=cid, role="assistant", content=final_content)
             yield ChatFinalEnvelope(payload=ChatFinalPayload(
                 conversation_id=cid,

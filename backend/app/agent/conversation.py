@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from typing import TYPE_CHECKING
 
 from app.core.models import _new_message_id
@@ -17,26 +18,32 @@ SYSTEM_PROMPT = (
 )
 
 MAX_HISTORY = 50  # Keep last N messages to avoid token overflow
+MAX_CONVERSATIONS = 100  # Max in-memory conversations before LRU eviction
 COMPRESS_THRESHOLD = 40
 COMPRESS_BATCH = 20
 SUMMARY_HEADER = "[Conversation summary]"
 
 
 class ConversationManager:
-    """Holds message history per conversation_id."""
+    """Holds message history per conversation_id with LRU eviction."""
 
     def __init__(
         self,
         store: MessageStore | None = None,
         thread_store: ThreadStore | None = None,
     ) -> None:
-        self._histories: dict[str, list[dict[str, str]]] = {}
+        self._histories: OrderedDict[str, list[dict[str, str]]] = OrderedDict()
         self._store = store
         self._thread_store = thread_store
+
+    def has_conversation(self, conversation_id: str) -> bool:
+        return conversation_id in self._histories
 
     def get_messages(self, conversation_id: str) -> list[dict[str, str]]:
         """Return system prompt + conversation history."""
         history = self._histories.get(conversation_id, [])
+        if conversation_id in self._histories:
+            self._histories.move_to_end(conversation_id)
         return [{"role": "system", "content": SYSTEM_PROMPT}] + history
 
     async def add_user_message(self, conversation_id: str, content: str) -> None:
@@ -65,11 +72,28 @@ class ConversationManager:
                 history.append({"role": role, "content": content})
 
         self._histories[conversation_id] = history[-MAX_HISTORY:]
+        self._histories.move_to_end(conversation_id)
+        self._evict()
+
+    def _evict(self) -> None:
+        """Evict oldest conversations if over limit, but never evict 'main'."""
+        while len(self._histories) > MAX_CONVERSATIONS:
+            # Pop oldest (first) entry, skip "main"
+            oldest_key = next(iter(self._histories))
+            if oldest_key == "main":
+                # Move main to end and try next
+                self._histories.move_to_end("main")
+                oldest_key = next(iter(self._histories))
+                if oldest_key == "main":
+                    break  # Only main left
+            self._histories.pop(oldest_key)
 
     async def _add_message(self, conversation_id: str, role: str, content: str) -> None:
         history = self._histories.setdefault(conversation_id, [])
         history.append({"role": role, "content": content})
         self._trim(conversation_id)
+        self._histories.move_to_end(conversation_id)
+        self._evict()
 
         message_id = _new_message_id()
         if conversation_id == "main":

@@ -96,6 +96,7 @@ class ToolApprovePayload(BaseModel):
 
 class ThreadCreatePayload(BaseModel):
     title: str | None = None
+    executor: str | None = None
     thread_type: Literal["task", "focus"] = "task"
 
 
@@ -110,6 +111,7 @@ class ThreadDeletePayload(BaseModel):
 class ThreadInfoPayload(BaseModel):
     thread_id: str
     title: str | None
+    executor: str | None = None
     thread_type: str
     status: str
     created_at: str
@@ -122,7 +124,34 @@ class ThreadListResultPayload(BaseModel):
 class ThreadUpdatedPayload(BaseModel):
     thread_id: str
     title: str | None = None
+    executor: str | None = None
     status: str | None = None
+
+
+class ExecutorListPayload(BaseModel):
+    pass
+
+
+class ExecutorStatusPayload(BaseModel):
+    executor_id: str
+
+
+class ExecutorAttachPayload(BaseModel):
+    executor_id: str
+
+
+class ExecutorDetachPayload(BaseModel):
+    pass
+
+
+class ExecutorListResultPayload(BaseModel):
+    executors: list[dict]
+
+
+class ExecutorStatusResultPayload(BaseModel):
+    executor_id: str
+    status: str
+    endpoint: str | None = None
 
 
 class ErrorPayload(BaseModel):
@@ -132,6 +161,8 @@ class ErrorPayload(BaseModel):
         "internal_error",
         "provider_error",
         "thread_not_found",
+        "executor_not_found",
+        "executor_error",
     ]
     message: str
     run_id: str | None = None
@@ -172,6 +203,34 @@ class ThreadDeleteEnvelope(BaseModel):
     payload: ThreadDeletePayload
 
 
+class ExecutorListEnvelope(BaseModel):
+    type: Literal["executor.list"] = "executor.list"
+    event_id: str = Field(default_factory=_new_event_id)
+    ts: int = Field(default_factory=_now_ts)
+    payload: ExecutorListPayload
+
+
+class ExecutorStatusEnvelope(BaseModel):
+    type: Literal["executor.status"] = "executor.status"
+    event_id: str = Field(default_factory=_new_event_id)
+    ts: int = Field(default_factory=_now_ts)
+    payload: ExecutorStatusPayload
+
+
+class ExecutorAttachEnvelope(BaseModel):
+    type: Literal["executor.attach"] = "executor.attach"
+    event_id: str = Field(default_factory=_new_event_id)
+    ts: int = Field(default_factory=_now_ts)
+    payload: ExecutorAttachPayload
+
+
+class ExecutorDetachEnvelope(BaseModel):
+    type: Literal["executor.detach"] = "executor.detach"
+    event_id: str = Field(default_factory=_new_event_id)
+    ts: int = Field(default_factory=_now_ts)
+    payload: ExecutorDetachPayload
+
+
 class ToolApproveEnvelope(BaseModel):
     type: Literal["tool.approve"] = "tool.approve"
     event_id: str = Field(default_factory=_new_event_id)
@@ -180,7 +239,16 @@ class ToolApproveEnvelope(BaseModel):
 
 
 ClientEnvelope = Annotated[
-    ClientHelloEnvelope | ChatSendEnvelope | ThreadCreateEnvelope | ThreadListEnvelope | ThreadDeleteEnvelope | ToolApproveEnvelope,
+    ClientHelloEnvelope
+    | ChatSendEnvelope
+    | ThreadCreateEnvelope
+    | ThreadListEnvelope
+    | ThreadDeleteEnvelope
+    | ExecutorListEnvelope
+    | ExecutorStatusEnvelope
+    | ExecutorAttachEnvelope
+    | ExecutorDetachEnvelope
+    | ToolApproveEnvelope,
     Field(discriminator="type"),
 ]
 
@@ -241,6 +309,20 @@ class ThreadUpdatedEnvelope(BaseModel):
     payload: ThreadUpdatedPayload
 
 
+class ExecutorListResultEnvelope(BaseModel):
+    type: Literal["executor.list_result"] = "executor.list_result"
+    event_id: str = Field(default_factory=_new_event_id)
+    ts: int = Field(default_factory=_now_ts)
+    payload: ExecutorListResultPayload
+
+
+class ExecutorStatusResultEnvelope(BaseModel):
+    type: Literal["executor.status_result"] = "executor.status_result"
+    event_id: str = Field(default_factory=_new_event_id)
+    ts: int = Field(default_factory=_now_ts)
+    payload: ExecutorStatusResultPayload
+
+
 class AgentThinkingEnvelope(BaseModel):
     type: Literal["agent.thinking"] = "agent.thinking"
     event_id: str = Field(default_factory=_new_event_id)
@@ -278,6 +360,8 @@ ServerEnvelope = Annotated[
     | ThreadCreatedEnvelope
     | ThreadListResultEnvelope
     | ThreadUpdatedEnvelope
+    | ExecutorListResultEnvelope
+    | ExecutorStatusResultEnvelope
     | AgentThinkingEnvelope
     | ToolRequestEnvelope
     | ToolResultEnvelope
