@@ -1,0 +1,217 @@
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════
+   DOTI — "Jade/Pebble" Design System v3
+   
+   Philosophy: Real jade is cool-toned with
+   depth and translucency. Light mode evokes
+   celadon porcelain — warm white with green
+   undertones. Dark mode evokes nephrite — 
+   deep forest green with subtle luminance.
+   ═══════════════════════════════════════════ */
+
+@layer base {
+  :root,
+  [data-theme="light"] {
+    /* Surface hierarchy: bg < card < popover (increasing lightness) */
+    --background: 140 12% 95%;       /* Warm celadon white */
+    --foreground: 150 20% 18%;       /* Deep forest ink */
+    --card: 0 0% 100%;               /* Pure white cards — the brightest layer */
+    --card-foreground: 150 20% 18%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 150 20% 18%;
+
+    /* Brand */
+    --primary: 158 35% 42%;          /* True jade — rich, medium green */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 150 10% 93%;        /* Stone wash */
+    --secondary-foreground: 150 15% 30%;
+    --muted: 150 8% 92%;
+    --muted-foreground: 150 8% 50%;
+    --accent: 150 12% 90%;
+    --accent-foreground: 150 25% 25%;
+
+    /* Status */
+    --destructive: 0 65% 52%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Structure */
+    --border: 150 8% 88%;            /* Soft stone edge */
+    --input: 150 8% 88%;
+    --ring: 158 35% 42%;
+
+    --radius: 1rem;
+
+    /* Shadows — warm and grounded */
+    --pebble-shadow-drop: rgba(0, 0, 0, 0.06);
+    --pebble-shadow-inner: rgba(255, 255, 255, 0.6);
+    --inner-pebble-shadow-drop: rgba(0, 0, 0, 0.03);
+    --inner-pebble-shadow-inner: rgba(255, 255, 255, 0.5);
+  }
+
+  [data-theme="dark"],
+  .dark {
+    /* Surface hierarchy: bg < card < popover (increasing lightness) */
+    --background: 160 18% 7%;        /* Deep nephrite */
+    --foreground: 140 8% 88%;        /* Pale jade text */
+    --card: 155 14% 11%;             /* Slightly lighter dark stone — noticeable lift */
+    --card-foreground: 140 8% 90%;
+    --popover: 155 12% 13%;          /* Even brighter for popups */
+    --popover-foreground: 140 8% 90%;
+
+    /* Brand */
+    --primary: 158 40% 44%;          /* Glowing jade in darkness */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 155 12% 15%;        /* Subtle stone shelf */
+    --secondary-foreground: 140 8% 85%;
+    --muted: 155 10% 14%;
+    --muted-foreground: 145 6% 52%;
+    --accent: 155 15% 18%;
+    --accent-foreground: 140 8% 92%;
+
+    /* Status */
+    --destructive: 0 55% 48%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Structure */
+    --border: 155 10% 17%;           /* Visible but unobtrusive */
+    --input: 155 10% 17%;
+    --ring: 158 40% 44%;
+
+    --radius: 1rem;
+
+    /* Shadows — subtle depth, no white glow */
+    --pebble-shadow-drop: rgba(0, 0, 0, 0.35);
+    --pebble-shadow-inner: rgba(255, 255, 255, 0.03);
+    --inner-pebble-shadow-drop: rgba(0, 0, 0, 0.25);
+    --inner-pebble-shadow-inner: rgba(255, 255, 255, 0.01);
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  #root {
+    min-height: 100vh;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+}
+
+/* ── Custom Scrollbars ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.25);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary) / 0.4);
+}
+
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.2) transparent;
+}
+.scroll-thin::-webkit-scrollbar { width: 5px; height: 5px; }
+.scroll-thin::-webkit-scrollbar-track { background: transparent; }
+.scroll-thin::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: hsl(var(--muted-foreground) / 0.2);
+}
+.scroll-thin::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary) / 0.3);
+}
+
+::selection {
+  background: hsl(var(--primary) / 0.2);
+  color: inherit;
+}
+
+/* ── Focus ── */
+*:focus-visible {
+  outline: 2px solid hsl(var(--primary) / 0.5);
+  outline-offset: 2px;
+}
+
+/* ── Animations ── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes pulse-ring {
+  0%   { transform: scale(0.8); opacity: 0.6; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@layer utilities {
+  .anim-fade-up {
+    animation: fade-up 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .anim-fade-in {
+    animation: fade-in 200ms ease-out both;
+  }
+  .anim-cursor {
+    animation: cursor-blink 1s step-end infinite;
+  }
+  .anim-pulse-ring {
+    animation: pulse-ring 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+  }
+  .anim-shimmer {
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite;
+  }
+}
+
+/* ── Typography helpers ── */
+.font-mono { font-family: var(--font-mono); }
+.font-sans { font-family: var(--font-sans); }
+
+/* ── Noise texture overlay ── */
+.noise::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.02;
+  z-index: 9999;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
