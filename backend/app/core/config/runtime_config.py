@@ -12,5 +12,6 @@ class RuntimeConfig(BaseSettings):
     temperature: float = 0.7
     max_tokens: int = 4096
     workspace: str = "."
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 8000
+    api_token: str | None = None  # Set DOTI_API_TOKEN to require auth on config endpoints

@@ -62,6 +62,7 @@ class Message(BaseModel):
 class Thread(BaseModel):
     thread_id: str = Field(default_factory=_new_thread_id)
     title: str | None = None
+    executor: str | None = None
     thread_type: ThreadType = ThreadType.task
     status: ThreadStatus = ThreadStatus.active
     created_at: datetime = Field(default_factory=_utcnow)

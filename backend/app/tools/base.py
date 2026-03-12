@@ -20,6 +20,9 @@ class ToolResult(BaseModel):
 
 
 class BaseTool(ABC):
+    def __init__(self, workspace: str = ".") -> None:
+        self._workspace = workspace
+
     @property
     @abstractmethod
     def name(self) -> str:

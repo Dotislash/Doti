@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import aiofiles
+from loguru import logger
 
 
 class MessageStore:
@@ -47,7 +48,10 @@ class MessageStore:
             text = line.strip()
             if not text:
                 continue
-            messages.append(json.loads(text))
+            try:
+                messages.append(json.loads(text))
+            except json.JSONDecodeError:
+                logger.warning("Skipping malformed JSONL line in {}", self.store_path)
         return messages
 
     async def load_all(self) -> list[dict]:
@@ -62,5 +66,8 @@ class MessageStore:
             text = line.strip()
             if not text:
                 continue
-            messages.append(json.loads(text))
+            try:
+                messages.append(json.loads(text))
+            except json.JSONDecodeError:
+                logger.warning("Skipping malformed JSONL line in {}", self.store_path)
         return messages

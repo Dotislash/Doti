@@ -36,13 +36,13 @@ class ToolRegistry:
         return await tool.execute(**arguments)
 
 
-def create_default_registry() -> ToolRegistry:
+def create_default_registry(workspace: str = ".") -> ToolRegistry:
     from app.tools.builtins.filesystem import ListDirectoryTool, ReadFileTool, WriteFileTool
     from app.tools.builtins.shell import ShellExecTool
 
     registry = ToolRegistry()
-    registry.register(ReadFileTool())
-    registry.register(WriteFileTool())
-    registry.register(ListDirectoryTool())
-    registry.register(ShellExecTool())
+    registry.register(ReadFileTool(workspace=workspace))
+    registry.register(WriteFileTool(workspace=workspace))
+    registry.register(ListDirectoryTool(workspace=workspace))
+    registry.register(ShellExecTool(workspace=workspace))
     return registry

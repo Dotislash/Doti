@@ -3,12 +3,27 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 
 from app.tools.base import BaseTool, RiskLevel, ToolResult
 
 MAX_OUTPUT = 20_000  # chars
 DEFAULT_TIMEOUT = 30  # seconds
+
+# Patterns that indicate dangerous shell operations
+_BLOCKED_PATTERNS = [
+    r"\brm\s+-rf\s+/",       # rm -rf /
+    r"\bmkfs\b",             # format disk
+    r"\bdd\s+.*of=/dev/",    # raw disk write
+    r">\s*/dev/sd",          # redirect to block device
+    r"\bcurl\b.*\|\s*sh",    # pipe to shell
+    r"\bwget\b.*\|\s*sh",    # pipe to shell
+    r"\bchmod\s+777\s+/",    # chmod 777 on root
+    r"\bshutdown\b",         # shutdown
+    r"\breboot\b",           # reboot
+]
+_BLOCKED_RE = re.compile("|".join(_BLOCKED_PATTERNS), re.IGNORECASE)
 
 
 class ShellExecTool(BaseTool):
@@ -46,11 +61,19 @@ class ShellExecTool(BaseTool):
         if not command.strip():
             return ToolResult(output="Empty command", is_error=True)
 
+        if _BLOCKED_RE.search(command):
+            return ToolResult(
+                output=f"Command blocked by safety filter: {command[:80]}",
+                is_error=True,
+            )
+
+        proc = None
         try:
             proc = await asyncio.create_subprocess_shell(
                 command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                cwd=self._workspace,
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
 
@@ -74,7 +97,8 @@ class ShellExecTool(BaseTool):
             return ToolResult(output=output, is_error=proc.returncode != 0)
 
         except asyncio.TimeoutError:
-            proc.kill()  # type: ignore[possibly-undefined]
+            if proc is not None and proc.returncode is None:
+                proc.kill()
             return ToolResult(output=f"Command timed out after {timeout}s", is_error=True)
         except Exception as e:
             return ToolResult(output=str(e), is_error=True)
