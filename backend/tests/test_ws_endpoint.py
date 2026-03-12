@@ -1,6 +1,5 @@
 """Tests for the WebSocket endpoint with mocked LLM provider."""
 
-import json
 from unittest.mock import AsyncMock, patch
 
 import pytest

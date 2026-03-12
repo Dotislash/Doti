@@ -44,46 +44,52 @@ def test_risk_levels():
 
 
 async def test_read_file(tmp_path):
-    tool = ReadFileTool()
+    tool = ReadFileTool(workspace=str(tmp_path))
     f = tmp_path / "test.txt"
     f.write_text("hello world", encoding="utf-8")
-    result = await tool.execute(path=str(f))
+    result = await tool.execute(path="test.txt")
     assert result.output == "hello world"
     assert not result.is_error
 
 
-async def test_read_file_not_found():
-    tool = ReadFileTool()
-    result = await tool.execute(path="/nonexistent/path/file.txt")
+async def test_read_file_not_found(tmp_path):
+    tool = ReadFileTool(workspace=str(tmp_path))
+    result = await tool.execute(path="nonexistent.txt")
     assert result.is_error
 
 
+async def test_read_file_escape(tmp_path):
+    tool = ReadFileTool(workspace=str(tmp_path))
+    result = await tool.execute(path="../../etc/passwd")
+    assert result.is_error
+    assert "escapes workspace" in result.output
+
+
 async def test_write_file(tmp_path):
-    tool = WriteFileTool()
-    f = tmp_path / "out.txt"
-    result = await tool.execute(path=str(f), content="test content")
+    tool = WriteFileTool(workspace=str(tmp_path))
+    result = await tool.execute(path="out.txt", content="test content")
     assert not result.is_error
-    assert f.read_text(encoding="utf-8") == "test content"
+    assert (tmp_path / "out.txt").read_text(encoding="utf-8") == "test content"
 
 
 async def test_list_directory(tmp_path):
     (tmp_path / "a.txt").touch()
     (tmp_path / "b_dir").mkdir()
-    tool = ListDirectoryTool()
-    result = await tool.execute(path=str(tmp_path))
+    tool = ListDirectoryTool(workspace=str(tmp_path))
+    result = await tool.execute(path=".")
     assert "[file] a.txt" in result.output
     assert "[dir] b_dir" in result.output
 
 
-async def test_shell_exec():
-    tool = ShellExecTool()
+async def test_shell_exec(tmp_path):
+    tool = ShellExecTool(workspace=str(tmp_path))
     result = await tool.execute(command="echo hello")
     assert "hello" in result.output
     assert not result.is_error
 
 
-async def test_shell_exec_error():
-    tool = ShellExecTool()
+async def test_shell_exec_error(tmp_path):
+    tool = ShellExecTool(workspace=str(tmp_path))
     result = await tool.execute(command="exit 1")
     assert result.is_error
 
