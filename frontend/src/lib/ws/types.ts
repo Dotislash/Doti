@@ -5,7 +5,9 @@ export type ErrorCode =
   | "conversation_busy"
   | "internal_error"
   | "provider_error"
-  | "thread_not_found";
+  | "thread_not_found"
+  | "executor_not_found"
+  | "executor_error";
 
 type Envelope<TType extends string, TPayload> = {
   type: TType;
@@ -67,6 +69,7 @@ export type HistorySyncPayload = {
 // Thread types
 export type ThreadCreatePayload = {
   title?: string;
+  executor?: string;
   thread_type?: "task" | "focus";
 };
 
@@ -79,6 +82,7 @@ export type ThreadDeletePayload = {
 export type ThreadInfoPayload = {
   thread_id: string;
   title: string | null;
+  executor?: string | null;
   thread_type: string;
   status: string;
   created_at: string;
@@ -91,6 +95,7 @@ export type ThreadListResultPayload = {
 export type ThreadUpdatedPayload = {
   thread_id: string;
   title?: string | null;
+  executor?: string | null;
   status?: string | null;
 };
 
@@ -123,6 +128,35 @@ export type ToolApprovePayload = {
   approved: boolean;
 };
 
+// Executor types
+export type ExecutorListPayload = Record<string, never>;
+
+export type ExecutorStatusPayload = {
+  executor_id: string;
+};
+
+export type ExecutorAttachPayload = {
+  executor_id: string;
+};
+
+export type ExecutorDetachPayload = Record<string, never>;
+
+export type ExecutorListResultPayload = {
+  executors: Array<{
+    id: string;
+    workspace: string;
+    image: string;
+    status: string;
+    last_activity: number | null;
+  }>;
+};
+
+export type ExecutorStatusResultPayload = {
+  executor_id: string;
+  status: string;
+  endpoint?: string | null;
+};
+
 export type ErrorPayload = {
   code: ErrorCode;
   message: string;
@@ -136,6 +170,10 @@ export type ThreadCreateMessage = Envelope<"thread.create", ThreadCreatePayload>
 export type ThreadListMessage = Envelope<"thread.list", ThreadListPayload>;
 export type ThreadDeleteMessage = Envelope<"thread.delete", ThreadDeletePayload>;
 export type ToolApproveMessage = Envelope<"tool.approve", ToolApprovePayload>;
+export type ExecutorListMessage = Envelope<"executor.list", ExecutorListPayload>;
+export type ExecutorStatusMessage = Envelope<"executor.status", ExecutorStatusPayload>;
+export type ExecutorAttachMessage = Envelope<"executor.attach", ExecutorAttachPayload>;
+export type ExecutorDetachMessage = Envelope<"executor.detach", ExecutorDetachPayload>;
 
 // Server messages
 export type ServerHelloMessage = Envelope<"server.hello", ServerHelloPayload>;
@@ -149,6 +187,8 @@ export type ThreadUpdatedMessage = Envelope<"thread.updated", ThreadUpdatedPaylo
 export type AgentThinkingMessage = Envelope<"agent.thinking", AgentThinkingPayload>;
 export type ToolRequestMessage = Envelope<"tool.request", ToolRequestPayload>;
 export type ToolResultMessage = Envelope<"tool.result", ToolResultPayload>;
+export type ExecutorListResultMessage = Envelope<"executor.list_result", ExecutorListResultPayload>;
+export type ExecutorStatusResultMessage = Envelope<"executor.status_result", ExecutorStatusResultPayload>;
 export type ErrorMessage = Envelope<"error", ErrorPayload>;
 
 export type ClientMessage =
@@ -157,7 +197,11 @@ export type ClientMessage =
   | ThreadCreateMessage
   | ThreadListMessage
   | ThreadDeleteMessage
-  | ToolApproveMessage;
+  | ToolApproveMessage
+  | ExecutorListMessage
+  | ExecutorStatusMessage
+  | ExecutorAttachMessage
+  | ExecutorDetachMessage;
 
 export type ServerMessage =
   | ServerHelloMessage
@@ -171,6 +215,8 @@ export type ServerMessage =
   | AgentThinkingMessage
   | ToolRequestMessage
   | ToolResultMessage
+  | ExecutorListResultMessage
+  | ExecutorStatusResultMessage
   | ErrorMessage;
 
 export function parseServerMessage(data: string): ServerMessage {

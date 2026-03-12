@@ -12,9 +12,15 @@ export type ChatItem =
 type ThreadInfo = {
   thread_id: string;
   title: string | null;
+  executor: string | null;
   thread_type: string;
   status: string;
   created_at: string;
+};
+
+type ExecutorInfo = {
+  id: string;
+  status: string;
 };
 
 type ChatStore = {
@@ -25,6 +31,9 @@ type ChatStore = {
   runState: RunState | null;
   error: string | null;
   threads: ThreadInfo[];
+  activeExecutor: ExecutorInfo | null;
+  selectedModel: string;
+  thinkingEnabled: boolean;
   connect: () => void;
   sendMessage: (content: string) => void;
   approveToolCall: (approvalId: string, approved: boolean) => void;
@@ -32,11 +41,12 @@ type ChatStore = {
   createThread: (title?: string, type?: "task" | "focus") => void;
   deleteThread: (threadId: string) => void;
   refreshThreads: () => void;
+  handleSlashCommand: (command: string, args: string) => void;
+  setModel: (modelRef: string) => void;
+  setThinkingEnabled: (enabled: boolean) => void;
   handleServerMessage: (msg: ServerMessage) => void;
   client: DotiWsClient | null;
 };
-
-const WS_URL = "ws://localhost:5173/ws";
 
 function createId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -53,12 +63,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   runState: null,
   error: null,
   threads: [],
+  activeExecutor: null,
+  selectedModel: "",
+  thinkingEnabled: false,
   client: null,
 
   connect: () => {
     let client = get().client;
     if (!client) {
-      client = new DotiWsClient(WS_URL);
+      client = new DotiWsClient();
       client.onMessage(get().handleServerMessage);
       set({ client });
     }
@@ -178,9 +191,70 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     });
   },
 
+  handleSlashCommand: (command: string, args: string) => {
+    switch (command) {
+      case "/model":
+        if (args) get().setModel(args);
+        return;
+      case "/think":
+        set((s) => ({ thinkingEnabled: !s.thinkingEnabled }));
+        return;
+      case "/clear":
+        set({ messages: [], streamingContent: "", error: null });
+        return;
+      case "/thread":
+        get().createThread(args || undefined);
+        return;
+      case "/executor": {
+        get().connect();
+        const client = get().client!;
+        if (args) {
+          client.send({
+            type: "executor.attach",
+            event_id: createId(),
+            ts: Date.now(),
+            payload: { executor_id: args },
+          });
+        } else {
+          client.send({
+            type: "executor.detach",
+            event_id: createId(),
+            ts: Date.now(),
+            payload: {},
+          });
+          set({ activeExecutor: null });
+        }
+        return;
+      }
+      case "/help":
+        set((s) => ({
+          messages: [
+            ...s.messages,
+            {
+              kind: "message" as const,
+              id: createId(),
+              role: "assistant" as const,
+              content:
+                "Available commands:\n- `/model <ref>` — Switch model\n- `/think` — Toggle thinking mode\n- `/executor [id]` — Attach/detach executor\n- `/thread [title]` — Create thread\n- `/clear` — Clear display\n- `/help` — Show this help",
+            },
+          ],
+        }));
+        return;
+    }
+  },
+
+  setModel: (modelRef: string) => {
+    set({ selectedModel: modelRef });
+  },
+
+  setThinkingEnabled: (enabled: boolean) => {
+    set({ thinkingEnabled: enabled });
+  },
+
   handleServerMessage: (msg: ServerMessage) => {
     switch (msg.type) {
       case "chat.delta": {
+        if (msg.payload.conversation_id !== get().activeConversation) return;
         set((state) => ({
           streamingContent: state.streamingContent + msg.payload.delta,
         }));
@@ -188,6 +262,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }
 
       case "chat.final": {
+        if (msg.payload.conversation_id !== get().activeConversation) return;
         set((state) => ({
           messages: [
             ...state.messages,
@@ -263,6 +338,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }
 
       case "agent.thinking": {
+        if (msg.payload.conversation_id !== get().activeConversation) return;
         set((state) => ({
           messages: [
             ...state.messages,
@@ -278,6 +354,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }
 
       case "tool.request": {
+        if (msg.payload.conversation_id !== get().activeConversation) return;
         set((state) => ({
           messages: [
             ...state.messages,
@@ -295,6 +372,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }
 
       case "tool.result": {
+        if (msg.payload.conversation_id !== get().activeConversation) return;
         set((state) => ({
           messages: [
             ...state.messages,
@@ -315,6 +393,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           threads: [...state.threads, {
             thread_id: msg.payload.thread_id,
             title: msg.payload.title,
+            executor: msg.payload.executor ?? null,
             thread_type: msg.payload.thread_type,
             status: msg.payload.status,
             created_at: msg.payload.created_at,
@@ -328,6 +407,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           threads: msg.payload.threads.map((t: ThreadInfoPayload) => ({
             thread_id: t.thread_id,
             title: t.title,
+            executor: t.executor ?? null,
             thread_type: t.thread_type,
             status: t.status,
             created_at: t.created_at,
@@ -352,6 +432,19 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               };
             }),
           }));
+        }
+        return;
+      }
+
+      case "executor.list_result":
+      case "executor.status_result": {
+        if (msg.type === "executor.status_result") {
+          const p = msg.payload;
+          if (p.status === "attached" || p.status === "running") {
+            set({ activeExecutor: { id: p.executor_id, status: p.status } });
+          } else if (p.status === "detached") {
+            set({ activeExecutor: null });
+          }
         }
         return;
       }

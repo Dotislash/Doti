@@ -4,7 +4,11 @@ import {
   type ServerMessage,
 } from "@/lib/ws/types";
 
-const DEFAULT_URL = "ws://localhost:5173/ws";
+function getDefaultWsUrl(): string {
+  if (typeof window === "undefined") return "ws://localhost:5173/ws";
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${window.location.host}/ws`;
+}
 const HELLO_PROTOCOL_VERSION = "1.0";
 const MAX_BACKOFF_MS = 10_000;
 
@@ -24,9 +28,10 @@ export class DotiWsClient {
   private shouldReconnect = true;
   private isConnecting = false;
   private readonly handlers = new Set<(msg: ServerMessage) => void>();
+  private readonly sendQueue: ClientMessage[] = [];
 
-  constructor(url: string = DEFAULT_URL) {
-    this.url = url;
+  constructor(url?: string) {
+    this.url = url ?? getDefaultWsUrl();
   }
 
   get connected(): boolean {
@@ -50,7 +55,14 @@ export class DotiWsClient {
     this.shouldReconnect = true;
     this.isConnecting = true;
 
-    const ws = new WebSocket(this.url);
+    // Append auth token if configured
+    let wsUrl = this.url;
+    const token = typeof localStorage !== "undefined" ? localStorage.getItem("doti-api-token") : null;
+    if (token) {
+      const sep = wsUrl.includes("?") ? "&" : "?";
+      wsUrl = `${wsUrl}${sep}token=${encodeURIComponent(token)}`;
+    }
+    const ws = new WebSocket(wsUrl);
     this.socket = ws;
 
     ws.onopen = () => {
@@ -67,6 +79,12 @@ export class DotiWsClient {
       };
 
       ws.send(JSON.stringify(hello));
+
+      // Flush queued messages
+      while (this.sendQueue.length > 0) {
+        const queued = this.sendQueue.shift()!;
+        ws.send(JSON.stringify(queued));
+      }
     };
 
     ws.onmessage = (event) => {
@@ -115,6 +133,7 @@ export class DotiWsClient {
 
   send(msg: ClientMessage): void {
     if (!this.connected || !this.socket) {
+      this.sendQueue.push(msg);
       return;
     }
 
