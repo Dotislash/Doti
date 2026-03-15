@@ -5,17 +5,16 @@ from __future__ import annotations
 from collections import OrderedDict
 from typing import TYPE_CHECKING
 
+from loguru import logger
+
 from app.core.models import _new_message_id
+from app.memory.context_builder import ContextBuilder
+from app.memory.store import MemoryStore
 
 if TYPE_CHECKING:
+    from app.agent.provider_client import ProviderClient
     from app.storage.message_store import MessageStore
     from app.storage.thread_store import ThreadStore
-
-SYSTEM_PROMPT = (
-    "You are DOTI, a helpful AI assistant running locally on the user's machine. "
-    "You are direct, concise, and technically capable. "
-    "Respond in the same language the user writes in."
-)
 
 MAX_HISTORY = 50  # Keep last N messages to avoid token overflow
 MAX_CONVERSATIONS = 100  # Max in-memory conversations before LRU eviction
@@ -31,20 +30,25 @@ class ConversationManager:
         self,
         store: MessageStore | None = None,
         thread_store: ThreadStore | None = None,
+        workspace: str = ".",
     ) -> None:
         self._histories: OrderedDict[str, list[dict[str, str]]] = OrderedDict()
         self._store = store
         self._thread_store = thread_store
+        self._context = ContextBuilder(workspace)
+        self._memory = MemoryStore(workspace)
+        self._consolidating: set[str] = set()
 
     def has_conversation(self, conversation_id: str) -> bool:
         return conversation_id in self._histories
 
     def get_messages(self, conversation_id: str) -> list[dict[str, str]]:
-        """Return system prompt + conversation history."""
+        """Return system prompt (with memory) + conversation history."""
         history = self._histories.get(conversation_id, [])
         if conversation_id in self._histories:
             self._histories.move_to_end(conversation_id)
-        return [{"role": "system", "content": SYSTEM_PROMPT}] + history
+        system_prompt = self._context.build_system_prompt()
+        return [{"role": "system", "content": system_prompt}] + history
 
     async def add_user_message(self, conversation_id: str, content: str) -> None:
         await self._add_message(conversation_id, "user", content)
@@ -104,49 +108,59 @@ class ConversationManager:
                 conversation_id, message_id, role, content
             )
 
-    def _trim(self, conversation_id: str) -> None:
+    async def consolidate_if_needed(
+        self, conversation_id: str, provider: ProviderClient
+    ) -> None:
+        """Trigger LLM-driven memory consolidation if conversation is long enough."""
+        if conversation_id in self._consolidating:
+            return
         history = self._histories.get(conversation_id)
-        if not history:
+        if not history or len(history) < COMPRESS_THRESHOLD:
             return
 
-        while len(history) > COMPRESS_THRESHOLD and len(history) >= COMPRESS_BATCH:
-            old = history[:COMPRESS_BATCH]
-            summary_lines: list[str] = []
-            start_index = 0
+        self._consolidating.add(conversation_id)
+        try:
+            keep_count = MAX_HISTORY // 2
+            old_messages = history[:-keep_count] if len(history) > keep_count else []
+            if not old_messages:
+                return
 
-            first = old[0]
-            first_role = first.get("role")
-            first_content = first.get("content")
-            if (
-                isinstance(first_role, str)
-                and isinstance(first_content, str)
-                and first_role == "system"
-                and first_content.startswith(SUMMARY_HEADER)
-            ):
-                merged = first_content[len(SUMMARY_HEADER) :].lstrip("\n")
-                if merged:
-                    summary_lines.append(merged)
-                start_index = 1
+            success = await self._memory.consolidate(old_messages, provider)
+            if success:
+                self._histories[conversation_id] = history[-keep_count:]
+                logger.info(
+                    "Consolidated {} messages for {}, kept {}",
+                    len(old_messages), conversation_id, keep_count,
+                )
+            else:
+                logger.warning("Consolidation failed for {}, falling back to trim", conversation_id)
+                self._trim_fallback(conversation_id)
+        except Exception:
+            logger.exception("Consolidation error for {}", conversation_id)
+            self._trim_fallback(conversation_id)
+        finally:
+            self._consolidating.discard(conversation_id)
 
-            for message in old[start_index:]:
-                role = message.get("role")
-                content = message.get("content")
-                role_text = role if isinstance(role, str) else "unknown"
-                content_text = content if isinstance(content, str) else ""
-                snippet = content_text[:100]
-                suffix = "..." if len(content_text) > 100 else ""
-                summary_lines.append(f"- {role_text}: {snippet}{suffix}")
+    def _trim(self, conversation_id: str) -> None:
+        """Hard cap: if history exceeds MAX_HISTORY, truncate oldest."""
+        history = self._histories.get(conversation_id)
+        if history and len(history) > MAX_HISTORY:
+            self._histories[conversation_id] = history[-MAX_HISTORY:]
 
-            summary = "\n".join(line for line in summary_lines if line)
-            summary_msg = {
-                "role": "system",
-                "content": (
-                    f"{SUMMARY_HEADER}\n{summary}" if summary else SUMMARY_HEADER
-                ),
-            }
-            history = [summary_msg] + history[COMPRESS_BATCH:]
-
-        if len(history) > MAX_HISTORY:
-            history = history[-MAX_HISTORY:]
-
-        self._histories[conversation_id] = history
+    def _trim_fallback(self, conversation_id: str) -> None:
+        """Fallback compression when LLM consolidation fails."""
+        history = self._histories.get(conversation_id)
+        if not history or len(history) <= COMPRESS_THRESHOLD:
+            return
+        keep_count = MAX_HISTORY // 2
+        old = history[:-keep_count]
+        summary_lines: list[str] = []
+        for m in old:
+            role = m.get("role", "unknown")
+            content = m.get("content", "")
+            if isinstance(content, str):
+                snippet = content[:100] + ("..." if len(content) > 100 else "")
+                summary_lines.append(f"- {role}: {snippet}")
+        summary = "\n".join(summary_lines)
+        summary_msg = {"role": "system", "content": f"{SUMMARY_HEADER}\n{summary}"}
+        self._histories[conversation_id] = [summary_msg] + history[-keep_count:]
