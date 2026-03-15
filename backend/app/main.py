@@ -8,14 +8,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.automation.event_queue import EventQueue
 from app.automation.routines import RoutineManager
 from app.api.rest.routes import router as rest_router, set_stores, set_doti_config
-from app.api.ws.router import router as ws_router, _get_store, _get_thread_store
+from app.api.ws.router import init_server_state, router as ws_router
 from app.core.config.loader import load_config
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    set_stores(_get_store(), _get_thread_store())
     doti_config = load_config()
+    state = init_server_state(doti_config)
+    set_stores(state.get_store(), state.get_thread_store())
     set_doti_config(doti_config)
     queue = EventQueue()
     manager = RoutineManager(queue)
