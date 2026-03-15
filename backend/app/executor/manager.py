@@ -65,6 +65,44 @@ class ExecutorManager:
             self._last_activity[executor_id] = time.time()
             return f"http://127.0.0.1:{host_port}"
 
+    async def execute_command(
+        self, executor_id: str, command: str, timeout: int = 30
+    ) -> tuple[int, str]:
+        """Execute command inside container. Returns (exit_code, output)."""
+
+        async with self._lock:
+            config = self._get_config(executor_id)
+            container = await self._get_container_by_name(self._container_name(config.id))
+            if container is None:
+                raise ExecutorManagerError(f"Executor '{executor_id}' is not created")
+
+            status = await self._container_status(container)
+            if status != "running":
+                raise ExecutorManagerError(f"Executor '{executor_id}' is not running")
+
+            exec_result = await asyncio.wait_for(
+                self._docker_call(
+                    container.exec_run,
+                    command,
+                    workdir="/workspace",
+                    demux=False,
+                    tty=False,
+                    stdout=True,
+                    stderr=True,
+                    stream=False,
+                    socket=False,
+                ),
+                timeout=timeout,
+            )
+            output = exec_result.output
+            if isinstance(output, bytes):
+                decoded_output = output.decode("utf-8", errors="replace")
+            else:
+                decoded_output = str(output)
+
+            self._last_activity[executor_id] = time.time()
+            return (int(exec_result.exit_code), decoded_output)
+
     async def stop(self, executor_id: str) -> None:
         """Stop container while preserving it for future restart."""
 
