@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import os
+from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from app.api.ws import router as ws_router_module
 from app.core.audit import log_config_change
-from app.core.config.loader import load_config, to_runtime_config
+from app.core.config.loader import load_config, save_config
 from app.core.config.models import (
     DotiConfig,
     ExecutorConfig,
@@ -36,7 +35,7 @@ _executor_manager: ExecutorManager | None = None
 
 def _require_auth(request: Request) -> None:
     """Verify Bearer token if DOTI_API_TOKEN is configured."""
-    token = os.environ.get("DOTI_API_TOKEN")
+    token = _get_doti_config().api_token
     if not token:
         return  # No token configured = no auth required (local-only mode)
     auth = request.headers.get("Authorization", "")
@@ -54,9 +53,14 @@ def set_doti_config(config: DotiConfig) -> None:
     global _doti_config, _executor_manager
     _doti_config = config
     _executor_manager = None
-    ws_router_module._config = to_runtime_config(config)
-    ws_router_module._provider = None
+    try:
+        from app.api.ws.router import get_server_state
 
+        state = get_server_state()
+        state.config = config
+        state.reset_provider()
+    except RuntimeError:
+        pass
 
 
 def _get_doti_config() -> DotiConfig:
@@ -72,6 +76,10 @@ def _get_executor_manager() -> ExecutorManager:
         config = _get_doti_config()
         _executor_manager = ExecutorManager(config.executors.values())
     return _executor_manager
+
+
+def _save_current_config(config: DotiConfig) -> None:
+    save_config(config, Path(config.workspace) / "config.yaml")
 
 
 def _raise_executor_http_error(exc: ExecutorManagerError) -> None:
@@ -196,6 +204,7 @@ async def upsert_provider(name: str, body: ProviderUpsertRequest, _=Depends(_req
 
     config.providers[name] = provider
     set_doti_config(config)
+    _save_current_config(config)
     log_config_change(f"/config/providers/{name}", "POST", f"upsert provider {name}")
     return {
         "name": name,
@@ -219,6 +228,7 @@ async def delete_provider(name: str, _=Depends(_require_auth)) -> dict:
 
     del config.providers[name]
     set_doti_config(config)
+    _save_current_config(config)
     log_config_change(f"/config/providers/{name}", "DELETE", f"deleted provider {name}")
     return {"deleted": True, "provider": name}
 
@@ -230,7 +240,9 @@ async def list_models() -> dict:
 
 
 @router.post("/config/providers/{provider}/models/{alias}")
-async def upsert_model(provider: str, alias: str, body: ModelUpsertRequest, _=Depends(_require_auth)) -> dict:
+async def upsert_model(
+    provider: str, alias: str, body: ModelUpsertRequest, _=Depends(_require_auth)
+) -> dict:
     config = _get_doti_config()
     provider_config = config.providers.get(provider)
     if provider_config is None:
@@ -243,6 +255,7 @@ async def upsert_model(provider: str, alias: str, body: ModelUpsertRequest, _=De
         thinking=body.thinking or ThinkingConfig(),
     )
     set_doti_config(config)
+    _save_current_config(config)
 
     model = provider_config.models[alias]
     return {
@@ -263,6 +276,7 @@ async def delete_model(provider: str, alias: str, _=Depends(_require_auth)) -> d
 
     del provider_config.models[alias]
     set_doti_config(config)
+    _save_current_config(config)
     return {"deleted": True, "provider": provider, "alias": alias}
 
 
@@ -288,6 +302,7 @@ async def patch_profile(body: ProfilePatchRequest, _=Depends(_require_auth)) -> 
         config.profile.automation = body.automation
 
     set_doti_config(config)
+    _save_current_config(config)
     return config.profile.model_dump()
 
 
@@ -307,6 +322,7 @@ async def patch_security(body: SecurityPatchRequest, _=Depends(_require_auth)) -
         config.security.tool_allowlist = body.tool_allowlist
 
     set_doti_config(config)
+    _save_current_config(config)
     log_config_change("/config/security", "PATCH", f"policy={config.security.tool_approval.value}")
     return config.security.model_dump()
 
@@ -350,7 +366,9 @@ async def remove_executor(executor_id: str, _=Depends(_require_auth)) -> dict:
         await manager.remove(executor_id)
     except ExecutorManagerError as exc:
         _raise_executor_http_error(exc)
-    log_config_change(f"/executors/{executor_id}", "DELETE", f"removed executor container {executor_id}")
+    log_config_change(
+        f"/executors/{executor_id}", "DELETE", f"removed executor container {executor_id}"
+    )
     return {"executor_id": executor_id, "removed": True}
 
 
@@ -367,7 +385,9 @@ async def get_executor_status(executor_id: str) -> dict:
 
 
 @router.post("/config/executors/{executor_id}")
-async def upsert_executor_config(executor_id: str, body: ExecutorUpsertRequest, _=Depends(_require_auth)) -> dict:
+async def upsert_executor_config(
+    executor_id: str, body: ExecutorUpsertRequest, _=Depends(_require_auth)
+) -> dict:
     config = _get_doti_config()
     config.executors[executor_id] = ExecutorConfig(
         id=executor_id,
@@ -380,7 +400,10 @@ async def upsert_executor_config(executor_id: str, body: ExecutorUpsertRequest, 
         rtk_enabled=body.rtk_enabled,
     )
     set_doti_config(config)
-    log_config_change(f"/config/executors/{executor_id}", "POST", f"upsert executor config {executor_id}")
+    _save_current_config(config)
+    log_config_change(
+        f"/config/executors/{executor_id}", "POST", f"upsert executor config {executor_id}"
+    )
     return config.executors[executor_id].model_dump()
 
 
@@ -391,7 +414,10 @@ async def delete_executor_config(executor_id: str, _=Depends(_require_auth)) -> 
         raise HTTPException(404, "Executor config not found")
     del config.executors[executor_id]
     set_doti_config(config)
-    log_config_change(f"/config/executors/{executor_id}", "DELETE", f"deleted executor config {executor_id}")
+    _save_current_config(config)
+    log_config_change(
+        f"/config/executors/{executor_id}", "DELETE", f"deleted executor config {executor_id}"
+    )
     return {"deleted": True, "executor_id": executor_id}
 
 

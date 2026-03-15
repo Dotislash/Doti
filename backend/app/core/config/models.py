@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -104,6 +105,9 @@ class DotiConfig(BaseModel):
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
     executors: dict[str, ExecutorConfig] = Field(default_factory=dict)
     workspace: str = "."
+    host: str = "127.0.0.1"
+    port: int = 8000
+    api_token: str | None = None
 
     def resolve_model(self, model_ref: str) -> tuple[ProviderConfig, ModelConfig] | None:
         """Resolve 'provider/model' reference to (provider, model) configs."""
@@ -134,3 +138,21 @@ class DotiConfig(BaseModel):
                     }
                 )
         return result
+
+    def get_primary_model(self) -> tuple[str, str | None, str | None]:
+        """Resolve primary model and credentials with env fallback."""
+        primary_ref = self.profile.primary.model if self.profile.primary is not None else ""
+        if primary_ref:
+            resolved = self.resolve_model(primary_ref)
+            if resolved is not None:
+                provider, model = resolved
+                return (model.id, provider.api_key, provider.api_base)
+
+        fallback_model = (os.environ.get("DOTI_MODEL") or "anthropic/claude-sonnet-4-5").strip()
+        if not fallback_model:
+            fallback_model = "anthropic/claude-sonnet-4-5"
+        return (
+            fallback_model,
+            os.environ.get("DOTI_API_KEY"),
+            os.environ.get("DOTI_API_BASE"),
+        )
