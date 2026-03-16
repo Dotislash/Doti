@@ -1,7 +1,7 @@
 # Config Overhaul Plan
 
 ## Goal
-Align config system with doti spec 02-config-format. Multi-provider, profiles, thinking config, YAML-based.
+Multi-provider, profiles, thinking config, YAML-based. (Completed — RuntimeConfig eliminated, DotiConfig is the single source of truth.)
 
 ## Phase 1: Config Models (backend)
 **Files**: `backend/app/core/config/models.py` (new)
